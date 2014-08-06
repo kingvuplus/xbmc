@@ -8,6 +8,13 @@
     <player name="DVDPlayer" /> placeholder for MPlayer
     <player name="PAPlayer" audio="true" />
     -->
+    <player name="E2Player" type="ExternalPlayer" audio="false" video="true">
+      <filename>/home/root/xbmc.helper</filename>
+      <args>--url="{1}" --owner="$PPID"</args>
+      <hidexbmc>true</hidexbmc>
+      <hideconsole>true</hideconsole>
+      <warpcursor>none</warpcursor>
+    </player>
   </players>
 
   <rules name="system rules">
@@ -37,5 +44,6 @@
 
     <!-- pvr radio channels should be played by dvdplayer because they need buffering -->
     <rule name="radio" filetypes="pvr" filename=".*/radio/.*" player="DVDPlayer" />
+    <rule name="dgb" filetypes="*.mp4" player="E2Player"/>
   </rules>
 </playercorefactory>

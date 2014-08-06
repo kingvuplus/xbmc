@@ -715,6 +715,18 @@ case $host in
      use_wayland=no
      build_shared_lib=yes
      ;;
+# oskwon
+  mipsel-*-linux*|mipsel*linux)
+     ARCH="mips"
+     use_arch="mips"
+     ffmpeg_target_os=linux
+     use_joystick=no
+     use_gles=yes
+     use_sdl=no
+     use_x11=no
+     use_wayland=no
+     use_static_ffmpeg=no
+     ;;
   *)
      AC_MSG_ERROR(unsupported host ($host))
 esac
@@ -751,6 +763,24 @@ case $use_platform in
      CFLAGS="$CFLAGS"
      CXXFLAGS="$CXXFLAGS"
      ffmpeg_target_os=linux
+     ;;
+# oskwon
+  dvbbox)
+     target_platform=target_dvbbox
+     ARCH="mips"
+     use_arch="mips"
+     ffmpeg_target_os=linux
+     use_joystick=no
+     use_gles=yes
+     use_sdl=no
+     use_x11=no
+     use_alsa="no"
+     use_wayland=no
+     use_static_ffmpeg=no
+     AC_DEFINE(HAS_EGLGLES, [1], [Define if supporting EGL based GLES Framebuffer])
+     USE_DVBBOX_EGL=1
+     CFLAGS="$CFLAGS"
+     CXXFLAGS="$CXXFLAGS"
      ;;
 esac
 
@@ -2681,6 +2711,8 @@ AC_SUBST(USE_PVR_ADDONS)
 AC_SUBST(GNUTLS_ALL_LIBS)
 AC_SUBST(HOGWEED_ALL_LIBS)
 AC_SUBST(VORBISENC_ALL_LIBS)
+# oskwon
+AC_SUBST(USE_DVBBOX_EGL)
 
 # pushd and popd are not available in other shells besides bash, so implement
 # our own pushd/popd functions
@@ -2807,7 +2839,7 @@ XB_CONFIG_MODULE([lib/ffmpeg], [
     sed -ie "s#YASM=yasm#YASM=${YASM}#" config.mak
     sed -ie "s#YASMDEP=yasm#YASMDEP=${YASM}#" config.mak
     sed -ie "s# -D_ISOC99_SOURCE -D_POSIX_C_SOURCE=200112 # #" config.mak
-  else
+  else # oskwon : disable mips arch at ffmpeg configure.
     CFLAGS="" \
     CPPFLAGS="" \
     CXXFLAGS="" \
@@ -2848,6 +2880,12 @@ XB_CONFIG_MODULE([lib/ffmpeg], [
       `if test "$have_gnutls" = "yes"; then echo --enable-gnutls; fi` \
       --enable-pthreads \
       --enable-runtime-cpudetect \
+      --enable-runtime-cpudetect \
+      --disable-gnutls \
+      --disable-mips32r2 \
+      --disable-mipsdspr1 \
+      --disable-mipsdspr2 \
+      --disable-mipsfpu \
       `if test "$use_hardcoded_tables" = "yes"; then echo --enable-hardcoded-tables; else echo --disable-hardcoded-tables; fi`\
       `if test "$target_platform" = "target_android"; then echo "--custom-libname-with-major=\\$(SLIBPREF)\\$(FULLNAME)-\\$(LIBMAJOR)-${ARCH}\\$(SLIBSUF)"; \
        else echo "--custom-libname-with-major=\\$(FULLNAME)-\\$(LIBMAJOR)-${ARCH}\\$(SLIBSUF)"; fi` \

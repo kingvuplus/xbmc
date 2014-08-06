@@ -52,7 +52,11 @@
 #elif defined(__ARMEL__)
 #define ADDON_HELPER_ARCH       "arm"
 #elif defined(_MIPSEL)
+#if defined(TARGET_DVBBOX) // oskwon
+#define ADDON_HELPER_ARCH       "mipsel-oe-linux"
+#else
 #define ADDON_HELPER_ARCH       "mipsel-linux"
+#endif
 #else
 #define ADDON_HELPER_ARCH       "i486-linux"
 #endif

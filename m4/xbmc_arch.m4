@@ -35,6 +35,10 @@ case $host in
   *-*linux-android*)
      AC_SUBST(ARCH_DEFINES, "-DTARGET_POSIX -DTARGET_LINUX -D_LINUX -DTARGET_ANDROID")
      ;;
+# oskwon
+  mipsel-*-linux*)
+     AC_SUBST(ARCH_DEFINES, "-DTARGET_POSIX -DTARGET_LINUX -D_LINUX -D_MIPSEL")
+     ;;
   *)
      AC_MSG_ERROR(unsupported host ($host))
 esac
@@ -46,6 +50,10 @@ fi
 case $use_platform in
   raspberry-pi)
      AC_SUBST(ARCH_DEFINES, "-DTARGET_POSIX -DTARGET_LINUX -D_LINUX -D_ARMEL -DTARGET_RASPBERRY_PI")
+     ;;
+# oskwon
+  dvbbox)
+     AC_SUBST(ARCH_DEFINES, "-DTARGET_POSIX -DTARGET_LINUX -D_LINUX -D_MIPSEL -DTARGET_DVBBOX")
      ;;
 esac
 ])

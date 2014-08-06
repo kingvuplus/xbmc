@@ -6,7 +6,7 @@
  *      Written by Denis Oliver Kropp <dok@directfb.org>,
  *      Andreas Hundt <andi@fischlustig.de>,
  *      Sven Neumann <neo@directfb.org>,
- *      Ville Syrjälä <syrjala@sci.fi> and
+ *      Ville Syrj��l�� <syrjala@sci.fi> and
  *      Claudio Ciccani <klan@users.sf.net>.
  *
  *      Copyright (C) 2005-2013 Team XBMC
@@ -254,7 +254,12 @@ KeyMap keyMap[] = {
   { 378               , XBMCK_RIGHT       }, // Green
   { 381               , XBMCK_UP          }, // Yellow
   { 366               , XBMCK_DOWN        }, // Blue
+#ifdef TARGET_DVBBOX // oskwon
+  { 352               , XBMCK_RETURN      }, // Ok
+  { 412               , XBMCK_ESCAPE      }, // <
+#endif /*TARGET_DVBBOX*/
 };
+
 
 typedef enum
 {
@@ -955,6 +960,7 @@ bool CLinuxInputDevices::CheckDevice(const char *device)
   if (fd < 0)
     return false;
 
+#ifndef TARGET_DVBBOX // oskwon
   if (ioctl(fd, EVIOCGRAB, 1) && errno != EINVAL)
   {
     close(fd);
@@ -962,6 +968,7 @@ bool CLinuxInputDevices::CheckDevice(const char *device)
   }
 
   ioctl(fd, EVIOCGRAB, 0);
+#endif /*TARGET_DVBBOX*/
 
   close(fd);
 
@@ -1054,6 +1061,7 @@ bool CLinuxInputDevice::Open()
     return false;
   }
 
+#ifndef TARGET_DVBBOX // oskwon
   /* grab device */
   ret = ioctl(fd, EVIOCGRAB, 1);
   if (ret && errno != EINVAL)
@@ -1062,6 +1070,7 @@ bool CLinuxInputDevice::Open()
     close(fd);
     return false;
   }
+#endif /*TARGET_DVBBOX*/
 
   // Set the socket to non-blocking
   int opts = 0;

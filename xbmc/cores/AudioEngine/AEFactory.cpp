@@ -40,7 +40,12 @@ IAE *CAEFactory::GetEngine()
 
 bool CAEFactory::LoadEngine()
 {
+// oskwon
+#if defined(TARGET_DVBBOX)
+  return true;
+#else
   return CAEFactory::LoadEngine(AE_ENGINE_ACTIVE);
+#endif /*TARGET_DVBBOX*/
 }
 
 bool CAEFactory::LoadEngine(enum AEEngine engine)
@@ -78,6 +83,10 @@ void CAEFactory::UnLoadEngine()
 
 bool CAEFactory::StartEngine()
 {
+// oskwon
+#if defined(TARGET_DVBBOX)
+  return true;
+#else
   if (!AE)
     return false;
 
@@ -87,6 +96,7 @@ bool CAEFactory::StartEngine()
   delete AE;
   AE = NULL;
   return false;
+#endif /*TARGET_DVBBOX*/
 }
 
 bool CAEFactory::Suspend()

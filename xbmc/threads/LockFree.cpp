@@ -25,6 +25,8 @@
 #include "LockFree.h"
 #include <stdlib.h>
 
+// oskwon :: cas/cas2, not implemented yet.
+
 ///////////////////////////////////////////////////////////////////////////
 // Fast stack implementation
 // NOTE: non-locking only on systems that support atomic cas2 operations

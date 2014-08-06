@@ -36,7 +36,7 @@
     defined(__powerpc__) || \
    (defined(TARGET_DARWIN_IOS) && defined(__llvm__)) || \
    (defined(TARGET_ANDROID) && defined(__arm__)) || \
-    defined(TARGET_RASPBERRY_PI)
+    defined(TARGET_RASPBERRY_PI) || defined(TARGET_DVBBOX) // oskwon
   #define DISABLE_MATHUTILS_ASM_ROUND_INT
 #endif
 
@@ -44,7 +44,7 @@
     defined(__powerpc__) || \
    (defined(TARGET_DARWIN) && defined(__llvm__)) || \
    (defined(TARGET_ANDROID) && defined(__arm__)) || \
-    defined(TARGET_RASPBERRY_PI)
+    defined(TARGET_RASPBERRY_PI) || defined(TARGET_DVBBOX) // oskwon
   #define DISABLE_MATHUTILS_ASM_TRUNCATE_INT
 #endif
 
