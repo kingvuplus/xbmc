@@ -191,13 +191,16 @@ ifeq (@USE_LIBAV_HACKS@,1)
 DIRECTORY_ARCHIVES += lib/xbmc-libav-hacks/dll-libavhacks.a
 endif
 
+# oskown
 PAPCODECS_DIRS= \
 	lib/nosefart \
 	lib/timidity \
 	lib/libsidplay2 \
 	lib/stsound/StSoundLibrary \
-	lib/snesapu/SNES/SNESAPU \
 	lib/vgmstream
+ifeq ($(or $(findstring mips,@ARCH@)),)
+PAPCODECS_DIRS+=lib/snesapu/SNES/SNESAPU
+endif
 
 ifeq (@USE_ASAP_CODEC@,1)
 PAPCODECS_DIRS+= \
@@ -298,12 +301,15 @@ CHECK_DIRS = xbmc/filesystem/test \
              xbmc/threads/test \
              xbmc/interfaces/python/test \
              xbmc/test
+# oskwon
 CHECK_LIBS = xbmc/filesystem/test/filesystemTest.a \
              xbmc/utils/test/utilsTest.a \
              xbmc/threads/test/threadTest.a \
              xbmc/interfaces/python/test/pythonSwigTest.a \
-             xbmc/cores/AudioEngine/Sinks/test/AESinkTest.a \
              xbmc/test/xbmc-test.a
+ifeq ($(or $(findstring mips,@ARCH@)),)
+CHECK_LIBS+=xbmc/cores/AudioEngine/Sinks/test/AESinkTest.a
+endif
 
 ifeq (@USE_WAYLAND@,1)
 CHECK_LIBS += xbmc/windowing/tests/wayland/test_wayland.a
@@ -432,7 +438,8 @@ ifeq (@USE_ASAP_CODEC@,1)
   endif
 endif
 	$(MAKE) -C lib/stsound/StSoundLibrary
-ifeq ($(or $(findstring powerpc,@ARCH@),$(findstring x86_64-linux,@ARCH@),$(findstring arm, @ARCH@),$(findstring freebsd,@ARCH@)),)
+# oskwon
+ifeq ($(or $(findstring powerpc,@ARCH@),$(findstring x86_64-linux,@ARCH@),$(findstring arm, @ARCH@),$(findstring freebsd,@ARCH@),$(findstring mips,@ARCH@)),)
 	$(MAKE) -C lib/snesapu/SNES/SNESAPU
 endif
 imagelib: dllloader
@@ -537,6 +544,8 @@ xbmc.bin: $(OBJSXBMC) $(DYNOBJSXBMC) $(NWAOBJSXBMC) $(MAINOBJS)
 
 ifeq ($(findstring osx,@ARCH@), osx)
 	$(SILENT_LD) $(CXX) $(LDFLAGS) -o xbmc.bin $(MAINOBJS) -Wl,-all_load,-ObjC $(MAINOBJS) $(DYNOBJSXBMC) $(NWAOBJSXBMC) $(OBJSXBMC) $(LIBS) -rdynamic
+else ifeq ($(findstring mips,@ARCH@), mips) # oskwon
+	$(SILENT_LD) $(CXX) $(CXXFLAGS) $(LDFLAGS) -o xbmc.bin $(MAINOBJS) -Wl,--start-group $(MAINOBJS) $(DYNOBJSXBMC) $(OBJSXBMC) -Wl,--end-group $(NWAOBJSXBMC) $(LIBS) -rdynamic xbmc/windowing/egl/gles_init.a -lnexus -lnxpl -lnxclient
 else
 	$(SILENT_LD) $(CXX) $(CXXFLAGS) $(LDFLAGS) -o xbmc.bin $(MAINOBJS) -Wl,--start-group $(MAINOBJS) $(DYNOBJSXBMC) $(OBJSXBMC) -Wl,--end-group $(NWAOBJSXBMC) $(LIBS) -rdynamic
 endif

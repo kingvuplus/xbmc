@@ -20,6 +20,9 @@
 
 #include "Atomics.h"
 #include "system.h"
+
+// oskwon :: cas/cas2, not implemented yet.
+
 ///////////////////////////////////////////////////////////////////////////
 // 32-bit atomic compare-and-swap
 // Returns previous value of *pAddr
