@@ -6,7 +6,7 @@
  *      Written by Denis Oliver Kropp <dok@directfb.org>,
  *      Andreas Hundt <andi@fischlustig.de>,
  *      Sven Neumann <neo@directfb.org>,
- *      Ville Syrj��l�� <syrjala@sci.fi> and
+ *      Ville Syrj������l������ <syrjala@sci.fi> and
  *      Claudio Ciccani <klan@users.sf.net>.
  *
  *      Copyright (C) 2005-2013 Team XBMC
@@ -715,6 +715,12 @@ XBMC_Event CLinuxInputDevice::ReadEvent()
 
       break;
     }
+
+#ifdef TARGET_DVBBOX // oskwon
+    if (access("/tmp/playing.lock", F_OK) == 0) {
+    	break;
+    }
+#endif /*TARGET_DVBBOX*/
 
     //printf("read event readlen = %d device name %s m_fileName %s\n", readlen, m_deviceName, m_fileName.c_str());
 
