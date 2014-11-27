@@ -44,6 +44,6 @@
 
     <!-- pvr radio channels should be played by dvdplayer because they need buffering -->
     <rule name="radio" filetypes="pvr" filename=".*/radio/.*" player="DVDPlayer" />
-    <rule name="dgb" filetypes="*.mp4" player="E2Player"/>
+    <rule name="dgb" filetypes="*" player="E2Player"/>
   </rules>
 </playercorefactory>
