@@ -47,6 +47,16 @@ config.log
 *.idb
 *ReSharper*
 *.idb
+*.IAB
+*.IAD
+*.IMB
+*.IMD
+*.PFI
+*.PO
+*.PR
+*.PRI
+*.PS
+*.WK3
 
 # osx specifics
 /build/
