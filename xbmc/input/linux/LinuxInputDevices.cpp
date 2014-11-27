@@ -1143,8 +1143,9 @@ bool CLinuxInputDevice::Open()
   return true;
 
 driver_open_device_error:
-
+#ifndef TARGET_DVBBOX // oskwon
   ioctl(fd, EVIOCGRAB, 0);
+#endif /*TARGET_DVBBOX*/
   if (m_vt_fd >= 0)
   {
     close(m_vt_fd);
@@ -1218,9 +1219,10 @@ bool CLinuxInputDevice::GetKeymapEntry(KeymapEntry& entry)
  */
 void CLinuxInputDevice::Close()
 {
+#ifndef TARGET_DVBBOX // oskwon
   /* release device */
   ioctl(m_fd, EVIOCGRAB, 0);
-
+#endif /*TARGET_DVBBOX*/
   if (m_vt_fd >= 0)
     close(m_vt_fd);
 
