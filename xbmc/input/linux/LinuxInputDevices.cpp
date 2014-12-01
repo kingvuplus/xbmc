@@ -250,13 +250,13 @@ KeyMap keyMap[] = {
   { KEY_PRINT         , XBMCK_PRINT       },
   { KEY_QUESTION      , XBMCK_HELP        },
   // The Little Black Box Remote Additions
-  { 384               , XBMCK_LEFT        }, // Red
-  { 378               , XBMCK_RIGHT       }, // Green
-  { 381               , XBMCK_UP          }, // Yellow
-  { 366               , XBMCK_DOWN        }, // Blue
+  { 384               , XBMCK_LEFT        }, // left
+  { 378               , XBMCK_RIGHT       }, // right
+  { 381               , XBMCK_UP          }, // up
+  { 366               , XBMCK_DOWN        }, // down
 #ifdef TARGET_DVBBOX // oskwon
-  { 352               , XBMCK_RETURN      }, // Ok
-  { 412               , XBMCK_ESCAPE      }, // <
+  { KEY_OK            , XBMCK_RETURN      }, // Ok
+  { KEY_EXIT          , XBMCK_ESCAPE      }, // EXIT
 #endif /*TARGET_DVBBOX*/
 };
 
