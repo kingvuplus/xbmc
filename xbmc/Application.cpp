@@ -2438,6 +2438,21 @@ bool CApplication::OnKey(const CKey& key)
           useKeyboard = true;
       }
     }
+#if defined(TARGET_DVBBOX) // oskwon
+//    printf("----->> %x\n", key.GetVKey());
+    switch(key.GetVKey())
+    {
+      case 0x0d:
+      case 0x80:
+      case 0x81:
+      case 0x82:
+      case 0x83:
+	  	if (iWin == WINDOW_DIALOG_KEYBOARD) {
+	  	  useKeyboard = false;
+        }
+	  	break;
+    }
+#endif
     if (useKeyboard)
     {
       action = CAction(0); // reset our action

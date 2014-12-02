@@ -27,6 +27,8 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
+#define VKEY_ENABLE (0)
+ 
 #include "system.h"
 #if defined(HAS_LINUX_EVENTS)
 
@@ -531,9 +533,17 @@ bool CLinuxInputDevice::KeyEvent(const struct input_event& levt, XBMC_Event& dev
 
     KeymapEntry entry;
     entry.code = code;
-    if (GetKeymapEntry(entry))
+
+	int keyMapValue;
+#if defined(TARGET_DVBBOX) // oskwon
+	if (devt.key.keysym.mod & (XBMCKMOD_SHIFT | XBMCKMOD_CAPS)) keyMapValue = entry.shift;
+	else if (devt.key.keysym.mod & XBMCKMOD_ALT) keyMapValue = entry.alt;
+	else if (devt.key.keysym.mod & XBMCKMOD_META) keyMapValue = entry.altShift;
+	else keyMapValue = entry.base;
+	devt.key.keysym.unicode = devt.key.keysym.sym;
+#else
+	if (GetKeymapEntry(entry))
     {
-      int keyMapValue;
       if (devt.key.keysym.mod & (XBMCKMOD_SHIFT | XBMCKMOD_CAPS)) keyMapValue = entry.shift;
       else if (devt.key.keysym.mod & XBMCKMOD_ALT) keyMapValue = entry.alt;
       else if (devt.key.keysym.mod & XBMCKMOD_META) keyMapValue = entry.altShift;
@@ -548,6 +558,7 @@ bool CLinuxInputDevice::KeyEvent(const struct input_event& levt, XBMC_Event& dev
         }
       }
     }
+#endif /*defined(TARGET_DVBBOX)*/
   }
 
   return true;
@@ -966,7 +977,7 @@ bool CLinuxInputDevices::CheckDevice(const char *device)
   if (fd < 0)
     return false;
 
-#ifndef TARGET_DVBBOX // oskwon
+#if !defined(TARGET_DVBBOX) && !VKEY_ENABLE // oskwon
   if (ioctl(fd, EVIOCGRAB, 1) && errno != EINVAL)
   {
     close(fd);
@@ -1067,7 +1078,7 @@ bool CLinuxInputDevice::Open()
     return false;
   }
 
-#ifndef TARGET_DVBBOX // oskwon
+#if !defined(TARGET_DVBBOX) && !VKEY_ENABLE // oskwon
   /* grab device */
   ret = ioctl(fd, EVIOCGRAB, 1);
   if (ret && errno != EINVAL)
@@ -1143,7 +1154,7 @@ bool CLinuxInputDevice::Open()
   return true;
 
 driver_open_device_error:
-#ifndef TARGET_DVBBOX // oskwon
+#if !defined(TARGET_DVBBOX) && !VKEY_ENABLE // oskwon
   ioctl(fd, EVIOCGRAB, 0);
 #endif /*TARGET_DVBBOX*/
   if (m_vt_fd >= 0)
@@ -1219,7 +1230,7 @@ bool CLinuxInputDevice::GetKeymapEntry(KeymapEntry& entry)
  */
 void CLinuxInputDevice::Close()
 {
-#ifndef TARGET_DVBBOX // oskwon
+#if !defined(TARGET_DVBBOX) && !VKEY_ENABLE // oskwon
   /* release device */
   ioctl(m_fd, EVIOCGRAB, 0);
 #endif /*TARGET_DVBBOX*/
