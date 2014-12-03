@@ -1128,7 +1128,7 @@ bool CPVRClients::UpdateAddons(void)
     // You need a tuner, backend software, and an add-on for the backend to be able to use PVR.
     // Please visit xbmc.org/pvr to learn more.
     m_bNoAddonWarningDisplayed = true;
-    CSettings::Get().SetBool("pvrmanager.enabled", false);
+    //CSettings::Get().SetBool("pvrmanager.enabled", false); // oskwon
     CGUIDialogOK::ShowAndGetInput(19271, 19272, 19273, 19274);
     CGUIMessage msg(GUI_MSG_UPDATE, WINDOW_SETTINGS_MYPVR, 0);
     g_windowManager.SendThreadMessage(msg, WINDOW_SETTINGS_MYPVR);
