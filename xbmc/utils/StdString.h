@@ -1535,6 +1535,9 @@ inline void  ssadd(std::wstring& sDst, PCSTR pA)
 template<typename CT>
 inline int sscmp(const CT* pA1, const CT* pA2)
 {
+	if (pA1 == 0) return -1;
+	if (pA2 == 0) return 1;
+
     CT f;
     CT l;
 
@@ -1542,7 +1545,7 @@ inline int sscmp(const CT* pA1, const CT* pA2)
     {
       f = *(pA1++);
       l = *(pA2++);
-    } while ( (f) && (f == l) );
+    } while ( (f) && (l) && (f == l) );
 
     return (int)(f - l);
 }
@@ -1550,21 +1553,36 @@ inline int sscmp(const CT* pA1, const CT* pA2)
 // -----------------------------------------------------------------------------
 // ssicmp: comparison (case INsensitive, not affected by locale)
 // -----------------------------------------------------------------------------
+#define NOT_USE_STD (1) /*oskwon*/
+#ifdef NOT_USE_STD
+inline char sstoupper(char ch)    { return (ch >= 'a' && ch <= 'z')? char(ch + 'A' - 'a'): ch; }
+inline char sstolower(char ch)    { return (ch >= 'A' && ch <= 'Z')? char(ch + 'a' - 'A'): ch; }
+#endif
+
 template<typename CT>
 inline int ssicmp(const CT* pA1, const CT* pA2)
 {
   // Using the "C" locale = "not affected by locale"
 
-  std::locale loc = std::locale::classic();
+  if (pA1 == 0) return -1;
+  if (pA2 == 0) return 1;
+#ifndef NOT_USE_STD
+    std::locale loc = std::locale::classic();
     const std::ctype<CT>& ct = SS_USE_FACET(loc, std::ctype<CT>);
+#endif
     CT f;
     CT l;
 
     do
     {
+#ifdef NOT_USE_STD
+      f = sstolower(*(pA1++));
+      l = sstolower(*(pA2++));
+#else
       f = ct.tolower(*(pA1++));
       l = ct.tolower(*(pA2++));
-    } while ( (f) && (f == l) );
+#endif
+    } while ( (f) && (l) && (f == l) );
 
     return (int)(f - l);
 }

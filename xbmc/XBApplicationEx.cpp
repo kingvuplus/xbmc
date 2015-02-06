@@ -210,10 +210,6 @@ INT CXBApplicationEx::Run()
   } // while (!m_bStop)
   Destroy();
 
-#ifdef TARGET_DVBBOX // oskwon
-  system("xbmc.helper --stop");
-#endif /*TARGET_DVBBOX*/
-
   CLog::Log(LOGNOTICE, "application stopped..." );
   return m_ExitCode;
 }
