@@ -41,7 +41,7 @@ enum PowerState
 };
 
 // For systems without PowerSyscalls we have a NullObject
-class CNullPowerSyscall : public IPowerSyscall
+class CNullPowerSyscall : public CAbstractPowerSyscall
 {
 public:
   virtual bool Powerdown()    { return false; }
@@ -85,7 +85,7 @@ public:
 
   void ProcessEvents();
 
-  static void SettingOptionsShutdownStatesFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current);
+  static void SettingOptionsShutdownStatesFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data);
 
 private:
   void OnSleep();

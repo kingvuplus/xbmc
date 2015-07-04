@@ -24,7 +24,6 @@
 #include "GroupUtils.h"
 #include "FileItem.h"
 #include "utils/StringUtils.h"
-#include "utils/Variant.h"
 #include "video/VideoDbUrl.h"
 #include "video/VideoInfoTag.h"
 #include "utils/URIUtils.h"
@@ -67,7 +66,7 @@ bool GroupUtils::Group(GroupBy groupBy, const std::string &baseDir, const CFileI
     if (!itemsUrl.FromString(baseDir))
       return false;
 
-    for (SetMap::const_iterator set = setMap.begin(); set != setMap.end(); set++)
+    for (SetMap::const_iterator set = setMap.begin(); set != setMap.end(); ++set)
     {
       // only one item in the set, so just re-add it
       if (set->second.size() == 1 && (groupAttributes & GroupAttributeIgnoreSingleItems))
@@ -78,9 +77,9 @@ bool GroupUtils::Group(GroupBy groupBy, const std::string &baseDir, const CFileI
 
       CFileItemPtr pItem(new CFileItem((*set->second.begin())->GetVideoInfoTag()->m_strSet));
       pItem->GetVideoInfoTag()->m_iDbId = set->first;
-      pItem->GetVideoInfoTag()->m_type = "set";
+      pItem->GetVideoInfoTag()->m_type = MediaTypeVideoCollection;
 
-      std::string basePath = StringUtils::Format("videodb://movies/sets/%ld/", set->first);
+      std::string basePath = StringUtils::Format("videodb://movies/sets/%i/", set->first);
       CVideoDbUrl videoUrl;
       if (!videoUrl.FromString(basePath))
         pItem->SetPath(basePath);
@@ -97,8 +96,8 @@ bool GroupUtils::Group(GroupBy groupBy, const std::string &baseDir, const CFileI
 
       int ratings = 0;
       int iWatched = 0; // have all the movies been played at least once?
-      std::set<CStdString> pathSet;
-      for (std::set<CFileItemPtr>::const_iterator movie = set->second.begin(); movie != set->second.end(); movie++)
+      std::set<std::string> pathSet;
+      for (std::set<CFileItemPtr>::const_iterator movie = set->second.begin(); movie != set->second.end(); ++movie)
       {
         CVideoInfoTag* movieInfo = (*movie)->GetVideoInfoTag();
         // handle rating

@@ -27,21 +27,59 @@
 
 #include "DVDMessageQueue.h"
 #include "DVDClock.h"
-#include "DVDPlayerAudio.h"
 #include "DVDPlayerVideo.h"
 #include "DVDPlayerSubtitle.h"
 #include "DVDPlayerTeletext.h"
 
-//#include "DVDChapterReader.h"
-#include "DVDSubtitles/DVDFactorySubtitle.h"
-#include "utils/BitstreamStats.h"
-
 #include "Edl.h"
 #include "FileItem.h"
-#include "threads/SingleLock.h"
 #include "utils/StreamDetails.h"
 #include "threads/SystemClock.h"
 
+#ifdef HAS_OMXPLAYER
+#include "OMXCore.h"
+#include "OMXClock.h"
+#include "linux/RBP.h"
+#else
+
+// dummy class to avoid ifdefs where calls are made
+class OMXClock
+{
+public:
+  bool OMXInitialize(CDVDClock *clock) { return false; }
+  void OMXDeinitialize() {}
+  bool OMXIsPaused() { return false; }
+  bool OMXStop(bool lock = true) { return false; }
+  bool OMXStep(int steps = 1, bool lock = true) { return false; }
+  bool OMXReset(bool has_video, bool has_audio, bool lock = true) { return false; }
+  double OMXMediaTime(bool lock = true) { return 0.0; }
+  double OMXClockAdjustment(bool lock = true) { return 0.0; }
+  bool OMXMediaTime(double pts, bool lock = true) { return false; }
+  bool OMXPause(bool lock = true) { return false; }
+  bool OMXResume(bool lock = true) { return false; }
+  bool OMXSetSpeed(int speed, bool lock = true, bool pause_resume = false) { return false; }
+  bool OMXFlush(bool lock = true) { return false; }
+  bool OMXStateExecute(bool lock = true) { return false; }
+  void OMXStateIdle(bool lock = true) {}
+  bool HDMIClockSync(bool lock = true) { return false; }
+  void OMXSetSpeedAdjust(double adjust, bool lock = true) {}
+};
+#endif
+
+struct SOmxPlayerState
+{
+  OMXClock av_clock;              // openmax clock component
+  EDEINTERLACEMODE current_deinterlace; // whether deinterlace is currently enabled
+  EINTERLACEMETHOD interlace_method; // current deinterlace method
+  bool bOmxWaitVideo;             // whether we need to wait for video to play out on EOS
+  bool bOmxWaitAudio;             // whether we need to wait for audio to play out on EOS
+  bool bOmxSentEOFs;              // flag if we've send EOFs to audio/video players
+  float threshold;                // current fifo threshold required to come out of buffering
+  int video_fifo;                 // video fifo to gpu level
+  int audio_fifo;                 // audio fifo to gpu level
+  double last_check_time;         // we periodically check for gpu underrun
+  double stamp;                   // last media timestamp
+};
 
 class CDVDInputStream;
 
@@ -49,6 +87,8 @@ class CDVDDemux;
 class CDemuxStreamVideo;
 class CDemuxStreamAudio;
 class CStreamInfo;
+class CDVDDemuxCC;
+class CDVDPlayer;
 
 namespace PVR
 {
@@ -77,6 +117,7 @@ public:
   const int        player;
   // stuff to handle starting after seek
   double   startpts;
+  double   lastdts;
 
   CCurrentStream(StreamType t, int i)
     : type(t)
@@ -98,6 +139,7 @@ public:
     inited = false;
     started = false;
     startpts  = DVD_NOPTS_VALUE;
+    lastdts = DVD_NOPTS_VALUE;
   }
 
   double dts_end()
@@ -110,19 +152,19 @@ public:
   }
 };
 
-typedef struct
+typedef struct SelectionStream
 {
-  StreamType   type;
-  int          type_index;
+  StreamType   type = STREAM_NONE;
+  int          type_index = 0;
   std::string  filename;
   std::string  filename2;  // for vobsub subtitles, 2 files are necessary (idx/sub)
   std::string  language;
   std::string  name;
-  CDemuxStream::EFlags flags;
-  int          source;
-  int          id;
+  CDemuxStream::EFlags flags = CDemuxStream::FLAG_NONE;
+  int          source = 0;
+  int          id = 0;
   std::string  codec;
-  int          channels;
+  int          channels = 0;
 } SelectionStream;
 
 typedef std::vector<SelectionStream> SelectionStreams;
@@ -143,6 +185,7 @@ public:
   int              IndexOf (StreamType type, int source, int id) const;
   int              IndexOf (StreamType type, CDVDPlayer& p) const;
   int              Count   (StreamType type) const { return IndexOf(type, STREAM_SOURCE_NONE, -1) + 1; }
+  int              CountSource(StreamType type, StreamSource source) const;
   SelectionStream& Get     (StreamType type, int index);
   bool             Get     (StreamType type, CDemuxStream::EFlags flag, SelectionStream& out);
 
@@ -158,7 +201,7 @@ public:
   int              Source  (StreamSource source, std::string filename);
 
   void             Update  (SelectionStream& s);
-  void             Update  (CDVDInputStream* input, CDVDDemux* demuxer);
+  void             Update  (CDVDInputStream* input, CDVDDemux* demuxer, std::string filename2 = "");
 };
 
 
@@ -187,13 +230,12 @@ public:
   virtual float GetPercentage();
   virtual float GetCachePercentage();
 
-  virtual void RegisterAudioCallback(IAudioCallback* pCallback) { m_dvdPlayerAudio.RegisterAudioCallback(pCallback); }
-  virtual void UnRegisterAudioCallback()                        { m_dvdPlayerAudio.UnRegisterAudioCallback(); }
-  virtual void SetVolume(float nVolume)                         { m_dvdPlayerAudio.SetVolume(nVolume); }
-  virtual void SetDynamicRangeCompression(long drc)             { m_dvdPlayerAudio.SetDynamicRangeCompression(drc); }
-  virtual void GetAudioInfo(CStdString& strAudioInfo);
-  virtual void GetVideoInfo(CStdString& strVideoInfo);
-  virtual void GetGeneralInfo( CStdString& strVideoInfo);
+  virtual void SetVolume(float nVolume)                         { m_dvdPlayerAudio->SetVolume(nVolume); }
+  virtual void SetMute(bool bOnOff)                             { m_dvdPlayerAudio->SetMute(bOnOff); }
+  virtual void SetDynamicRangeCompression(long drc)             { m_dvdPlayerAudio->SetDynamicRangeCompression(drc); }
+  virtual void GetAudioInfo(std::string& strAudioInfo);
+  virtual void GetVideoInfo(std::string& strVideoInfo);
+  virtual void GetGeneralInfo(std::string& strVideoInfo);
   virtual bool CanRecord();
   virtual bool IsRecording();
   virtual bool CanPause();
@@ -209,7 +251,7 @@ public:
   virtual void SetSubtitle(int iStream);
   virtual bool GetSubtitleVisible();
   virtual void SetSubtitleVisible(bool bVisible);
-  virtual int  AddSubtitle(const CStdString& strSubPath);
+  virtual void AddSubtitle(const std::string& strSubPath);
 
   virtual int GetAudioStreamCount();
   virtual int GetAudioStream();
@@ -220,11 +262,14 @@ public:
 
   virtual int  GetChapterCount();
   virtual int  GetChapter();
-  virtual void GetChapterName(CStdString& strChapterName);
+  virtual void GetChapterName(std::string& strChapterName, int chapterIdx=-1);
+  virtual int64_t GetChapterPos(int chapterIdx=-1);
   virtual int  SeekChapter(int iChapter);
 
   virtual void SeekTime(int64_t iTime);
+  virtual bool SeekTimeRelative(int64_t iTime);
   virtual int64_t GetTime();
+  virtual int64_t GetDisplayTime();
   virtual int64_t GetTotalTime();
   virtual void ToFFRW(int iSpeed);
   virtual bool OnAction(const CAction &action);
@@ -235,12 +280,12 @@ public:
   virtual bool GetStreamDetails(CStreamDetails &details);
   virtual void GetAudioStreamInfo(int index, SPlayerAudioStreamInfo &info);
 
-  virtual CStdString GetPlayerState();
-  virtual bool SetPlayerState(CStdString state);
+  virtual std::string GetPlayerState();
+  virtual bool SetPlayerState(const std::string& state);
 
-  virtual CStdString GetPlayingTitle();
+  virtual std::string GetPlayingTitle();
 
-  virtual bool SwitchChannel(const PVR::CPVRChannel &channel);
+  virtual bool SwitchChannel(const PVR::CPVRChannelPtr &channel);
   virtual bool CachePVRStream(void) const;
 
   enum ECacheState
@@ -256,34 +301,34 @@ public:
   virtual int GetCacheLevel() const ;
 
   virtual int OnDVDNavResult(void* pData, int iMessage);
+
+  virtual bool ControlsVolume() {return m_omxplayer_mode;}
+
 protected:
   friend class CSelectionStreams;
-
-  class StreamLock : public CSingleLock
-  {
-  public:
-    inline StreamLock(CDVDPlayer* cdvdplayer) : CSingleLock(cdvdplayer->m_critStreamSection) {}
-  };
 
   virtual void OnStartup();
   virtual void OnExit();
   virtual void Process();
 
-  bool OpenAudioStream(int iStream, int source, bool reset = true);
-  bool OpenVideoStream(int iStream, int source, bool reset = true);
-  bool OpenSubtitleStream(int iStream, int source);
+  void CreatePlayers();
+  void DestroyPlayers();
+
+  bool OpenStream(CCurrentStream& current, int iStream, int source, bool reset = true);
+  bool OpenStreamPlayer(CCurrentStream& current, CDVDStreamInfo& hint, bool reset);
+  bool OpenAudioStream(CDVDStreamInfo& hint, bool reset = true);
+  bool OpenVideoStream(CDVDStreamInfo& hint, bool reset = true);
+  bool OpenSubtitleStream(CDVDStreamInfo& hint);
+  bool OpenTeletextStream(CDVDStreamInfo& hint);
 
   /** \brief Switches forced subtitles to forced subtitles matching the language of the current audio track.
   *          If these are not available, subtitles are disabled.
   *   \return true if the subtitles were changed, false otherwise.
   */
   bool AdaptForcedSubtitles();
-  bool OpenTeletextStream(int iStream, int source);
-  bool CloseAudioStream(bool bWaitForBuffers);
-  bool CloseVideoStream(bool bWaitForBuffers);
-  bool CloseSubtitleStream(bool bKeepOverlays);
-  bool CloseTeletextStream(bool bWaitForBuffers);
+  bool CloseStream(CCurrentStream& current, bool bWaitForBuffers);
 
+  bool CheckIsCurrent(CCurrentStream& current, CDemuxStream* stream, DemuxPacket* pkg);
   void ProcessPacket(CDemuxStream* pStream, DemuxPacket* pPacket);
   void ProcessAudioData(CDemuxStream* pStream, DemuxPacket* pPacket);
   void ProcessVideoData(CDemuxStream* pStream, DemuxPacket* pPacket);
@@ -292,7 +337,7 @@ protected:
 
   bool ShowPVRChannelInfo();
 
-  int  AddSubtitleFile(const std::string& filename, const std::string& subfilename = "", CDemuxStream::EFlags flags = CDemuxStream::FLAG_NONE);
+  int  AddSubtitleFile(const std::string& filename, const std::string& subfilename = "");
   void SetSubtitleVisibleInternal(bool bVisible);
 
   /**
@@ -308,7 +353,8 @@ protected:
   bool GetCachingTimes(double& play_left, double& cache_left, double& file_offset);
 
 
-  void FlushBuffers(bool queued, double pts = DVD_NOPTS_VALUE, bool accurate = true);
+  void FlushBuffers(bool queued, double pts = DVD_NOPTS_VALUE, bool accurate = true, bool sync = true);
+  void TriggerResync();
 
   void HandleMessages();
   void HandlePlaySpeed();
@@ -319,15 +365,18 @@ protected:
   void CheckAutoSceneSkip();
   void CheckContinuity(CCurrentStream& current, DemuxPacket* pPacket);
   bool CheckSceneSkip(CCurrentStream& current);
-  bool CheckPlayerInit(CCurrentStream& current, unsigned int source);
+  bool CheckPlayerInit(CCurrentStream& current);
   bool CheckStartCaching(CCurrentStream& current);
   void UpdateCorrection(DemuxPacket* pkt, double correction);
   void UpdateTimestamps(CCurrentStream& current, DemuxPacket* pPacket);
+  IDVDStreamPlayer* GetStreamPlayer(unsigned int player);
   void SendPlayerMessage(CDVDMsg* pMsg, unsigned int target);
 
   bool ReadPacket(DemuxPacket*& packet, CDemuxStream*& stream);
   bool IsValidStream(CCurrentStream& stream);
   bool IsBetterStream(CCurrentStream& current, CDemuxStream* stream);
+  void CheckBetterStream(CCurrentStream& current, CDemuxStream* stream);
+  void CheckStreamChanges(CCurrentStream& current, CDemuxStream* stream);
   bool CheckDelayedChannelEntry(void);
 
   bool OpenInputStream();
@@ -336,8 +385,10 @@ protected:
 
   void UpdateApplication(double timeout);
   void UpdatePlayState(double timeout);
+  void UpdateClockMaster();
   double m_UpdateApplication;
 
+  bool m_players_created;
   bool m_bAbortRequest;
 
   std::string  m_filename; // holds the actual filename
@@ -357,8 +408,10 @@ protected:
   int m_playSpeed;
   struct SSpeedState
   {
-    double lastpts;  // holds last display pts during ff/rw operations
-    double lasttime;
+    double  lastpts;  // holds last display pts during ff/rw operations
+    int64_t lasttime;
+    int lastseekpts;
+    double  lastabstime;
   } m_SpeedState;
 
   int m_errorCount;
@@ -366,10 +419,10 @@ protected:
 
   CDVDMessageQueue m_messenger;     // thread messenger
 
-  CDVDPlayerVideo m_dvdPlayerVideo; // video part
-  CDVDPlayerAudio m_dvdPlayerAudio; // audio part
-  CDVDPlayerSubtitle m_dvdPlayerSubtitle; // subtitle part
-  CDVDTeletextData m_dvdPlayerTeletext; // teletext part
+  IDVDStreamPlayerVideo *m_dvdPlayerVideo; // video part
+  IDVDStreamPlayerAudio *m_dvdPlayerAudio; // audio part
+  CDVDPlayerSubtitle *m_dvdPlayerSubtitle; // subtitle part
+  CDVDTeletextData *m_dvdPlayerTeletext; // teletext part
 
   CDVDClock m_clock;                // master clock
   CDVDOverlayContainer m_overlayContainer;
@@ -377,8 +430,7 @@ protected:
   CDVDInputStream* m_pInputStream;  // input stream for current playing file
   CDVDDemux* m_pDemuxer;            // demuxer for current playing file
   CDVDDemux* m_pSubtitleDemuxer;
-
-  CStdString m_lastSub;
+  CDVDDemuxCC* m_pCCDemuxer;
 
   struct SDVDInfo
   {
@@ -407,6 +459,10 @@ protected:
 
   friend class CDVDPlayerVideo;
   friend class CDVDPlayerAudio;
+#ifdef HAS_OMXPLAYER
+  friend class OMXPlayerVideo;
+  friend class OMXPlayerAudio;
+#endif
 
   struct SPlayerState
   {
@@ -416,14 +472,14 @@ protected:
       player        = 0;
       timestamp     = 0;
       time          = 0;
+      disptime      = 0;
       time_total    = 0;
       time_offset   = 0;
       time_src      = ETIMESOURCE_CLOCK;
       dts           = DVD_NOPTS_VALUE;
       player_state  = "";
       chapter       = 0;
-      chapter_name  = "";
-      chapter_count = 0;
+      chapters.clear();
       canrecord     = false;
       recording     = false;
       canpause      = false;
@@ -442,15 +498,15 @@ protected:
     double time_offset;       // difference between time and pts
 
     double time;              // current playback time
+    double disptime;          // current time of frame on screen
     double time_total;        // total playback time
     ETimeSource time_src;     // current time source
     double dts;               // last known dts
 
     std::string player_state;  // full player state
 
-    int         chapter;      // current chapter
-    std::string chapter_name; // name of current chapter
-    int         chapter_count;// number of chapter
+    int         chapter;      		   // current chapter
+    std::vector<std::pair<std::string, int64_t>> chapters; // name and position for chapters
 
     bool canrecord;           // can input stream record
     bool recording;           // are we currently recording
@@ -469,7 +525,6 @@ protected:
   CCriticalSection m_StateSection;
 
   CEvent m_ready;
-  CCriticalSection m_critStreamSection; // need to have this lock when switching streams (audio / video)
 
   CEdl m_Edl;
 
@@ -498,4 +553,8 @@ protected:
   bool m_HasAudio;
 
   bool m_DemuxerPausePending;
+
+  // omxplayer variables
+  struct SOmxPlayerState m_OmxPlayerState;
+  bool m_omxplayer_mode;            // using omxplayer acceleration
 };

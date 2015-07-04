@@ -20,14 +20,21 @@
  *
  */
 
+#include "cores/dvdplayer/DVDCodecs/DVDCodecs.h"
+#include "cores/dvdplayer/DVDStreamInfo.h"
 #include "DVDVideoCodec.h"
 #include "DVDResource.h"
-#include "DllAvCodec.h"
-#include "DllAvFormat.h"
-#include "DllAvUtil.h"
-#include "DllSwScale.h"
-#include "DllAvFilter.h"
-#include "DllPostProc.h"
+#include <string>
+#include <vector>
+
+extern "C" {
+#include "libavfilter/avfilter.h"
+#include "libavcodec/avcodec.h"
+#include "libavformat/avformat.h"
+#include "libavutil/avutil.h"
+#include "libswscale/swscale.h"
+#include "libpostproc/postprocess.h"
+}
 
 class CCriticalSection;
 
@@ -39,14 +46,14 @@ public:
     public:
              IHardwareDecoder() {}
     virtual ~IHardwareDecoder() {};
-    virtual bool Open      (AVCodecContext* avctx, const enum PixelFormat, unsigned int surfaces) = 0;
+    virtual bool Open      (AVCodecContext* avctx, AVCodecContext* mainctx, const enum PixelFormat, unsigned int surfaces) = 0;
     virtual int  Decode    (AVCodecContext* avctx, AVFrame* frame) = 0;
     virtual bool GetPicture(AVCodecContext* avctx, AVFrame* frame, DVDVideoPicture* picture) = 0;
     virtual int  Check     (AVCodecContext* avctx) = 0;
     virtual void Reset     () {}
     virtual unsigned GetAllowedReferences() { return 0; }
+    virtual bool CanSkipDeint() {return false; }
     virtual const std::string Name() = 0;
-    virtual CCriticalSection* Section() { return NULL; }
   };
 
   CDVDVideoCodecFFmpeg();
@@ -55,6 +62,7 @@ public:
   virtual void Dispose();
   virtual int Decode(uint8_t* pData, int iSize, double dts, double pts);
   virtual void Reset();
+  virtual void Reopen();
   bool GetPictureCommon(DVDVideoPicture* pDvdVideoPicture);
   virtual bool GetPicture(DVDVideoPicture* pDvdVideoPicture);
   virtual void SetDropState(bool bDrop);
@@ -62,27 +70,24 @@ public:
   virtual const char* GetName() { return m_name.c_str(); }; // m_name is never changed after open
   virtual unsigned GetConvergeCount();
   virtual unsigned GetAllowedReferences();
+  virtual bool GetCodecStats(double &pts, int &droppedPics);
+  virtual void SetCodecControl(int flags);
 
-  bool               IsHardwareAllowed()                     { return !m_bSoftware; }
   IHardwareDecoder * GetHardware()                           { return m_pHardware; };
-  void               SetHardware(IHardwareDecoder* hardware) 
-  {
-    SAFE_RELEASE(m_pHardware);
-    m_pHardware = hardware;
-    UpdateName();
-  }
+  void               SetHardware(IHardwareDecoder* hardware);
 
 protected:
   static enum PixelFormat GetFormat(struct AVCodecContext * avctx, const PixelFormat * fmt);
 
-  int  FilterOpen(const CStdString& filters, bool scale);
+  int  FilterOpen(const std::string& filters, bool scale);
   void FilterClose();
   int  FilterProcess(AVFrame* frame);
+  void DisposeHWDecoders();
 
   void UpdateName()
   {
     if(m_pCodecContext->codec->name)
-      m_name = CStdString("ff-") + m_pCodecContext->codec->name;
+      m_name = std::string("ff-") + m_pCodecContext->codec->name;
     else
       m_name = "ffmpeg";
 
@@ -93,16 +98,12 @@ protected:
   AVFrame* m_pFrame;
   AVCodecContext* m_pCodecContext;
 
-  CStdString       m_filters;
-  CStdString       m_filters_next;
+  std::string       m_filters;
+  std::string       m_filters_next;
   AVFilterGraph*   m_pFilterGraph;
   AVFilterContext* m_pFilterIn;
   AVFilterContext* m_pFilterOut;
-#if defined(LIBAVFILTER_AVFRAME_BASED)
   AVFrame*         m_pFilterFrame;
-#else
-  AVFilterBufferRef* m_pBufferRef;
-#endif
 
   int m_iPictureWidth;
   int m_iPictureHeight;
@@ -113,18 +114,18 @@ protected:
 
   unsigned int m_uSurfacesCount;
 
-  DllAvCodec m_dllAvCodec;
-  DllAvUtil  m_dllAvUtil;
-  DllSwScale m_dllSwScale;
-  DllAvFilter m_dllAvFilter;
-  DllPostProc m_dllPostProc;
-
   std::string m_name;
-  bool              m_bSoftware;
-  bool  m_isHi10p;
+  int m_decoderState;
   IHardwareDecoder *m_pHardware;
+  std::vector<IHardwareDecoder*> m_disposeDecoders;
   int m_iLastKeyframe;
   double m_dts;
   bool   m_started;
   std::vector<PixelFormat> m_formats;
+  double m_decoderPts;
+  int    m_skippedDeint;
+  bool   m_requestSkipDeint;
+  int    m_codecControlFlags;
+  CDVDStreamInfo m_hints;
+  CDVDCodecOptions m_options;
 };

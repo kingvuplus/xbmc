@@ -24,31 +24,39 @@
 //  Purpose:   ATL split string utility
 //  Author:    Paul J. Weiss
 //
-//  Modified to use J O'Leary's CStdString class by kraqh3d
+//  Modified to use J O'Leary's std::string class by kraqh3d
 //
 //------------------------------------------------------------------------
 
 
 #include "StringUtils.h"
-#include "utils/RegExp.h"
+#include "CharsetConverter.h"
 #include "utils/fstrcmp.h"
+#include "Util.h"
+#include "LangInfo.h"
 #include <locale>
+#include <functional>
 
+#include <assert.h>
 #include <math.h>
 #include <sstream>
 #include <time.h>
 #include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <memory.h>
+#include <algorithm>
+#include "utils/RegExp.h" // don't move or std functions end up in PCRE namespace
 
-#define FORMAT_BLOCK_SIZE 2048 // # of bytes to increment per try
+#define FORMAT_BLOCK_SIZE 512 // # of bytes for initial allocation for printf
 
 using namespace std;
 
 const char* ADDON_GUID_RE = "^(\\{){0,1}[0-9a-fA-F]{8}\\-[0-9a-fA-F]{4}\\-[0-9a-fA-F]{4}\\-[0-9a-fA-F]{4}\\-[0-9a-fA-F]{12}(\\}){0,1}$";
 
 /* empty string for use in returns by ref */
-const CStdString StringUtils::EmptyString = "";
 const std::string StringUtils::Empty = "";
-CStdString StringUtils::m_lastUUID = "";
+std::string StringUtils::m_lastUUID = "";
 
 //	Copyright (c) Leigh Brasington 2012.  All rights reserved.
 //  This code may be used and reproduced without written permission.
@@ -223,46 +231,46 @@ string StringUtils::Format(const char *fmt, ...)
 
 string StringUtils::FormatV(const char *fmt, va_list args)
 {
-  if (fmt == NULL)
+  if (!fmt || !fmt[0])
     return "";
 
   int size = FORMAT_BLOCK_SIZE;
   va_list argCopy;
 
-  char *cstr = reinterpret_cast<char*>(malloc(sizeof(char) * size));
-  if (cstr == NULL)
-    return "";
-
   while (1) 
   {
-    va_copy(argCopy, args);
+    char *cstr = reinterpret_cast<char*>(malloc(sizeof(char) * size));
+    if (!cstr)
+      return "";
 
+    va_copy(argCopy, args);
     int nActual = vsnprintf(cstr, size, fmt, argCopy);
     va_end(argCopy);
 
     if (nActual > -1 && nActual < size) // We got a valid result
     {
-      string str(cstr, nActual);
+      std::string str(cstr, nActual);
       free(cstr);
       return str;
     }
+    free(cstr);
+#ifndef TARGET_WINDOWS
     if (nActual > -1)                   // Exactly what we will need (glibc 2.1)
       size = nActual + 1;
     else                                // Let's try to double the size (glibc 2.0)
       size *= 2;
-
-    char *new_cstr = reinterpret_cast<char*>(realloc(cstr, sizeof(char) * size));
-    if (new_cstr == NULL)
-    {
-      free(cstr);
+#else  // TARGET_WINDOWS
+    va_copy(argCopy, args);
+    size = _vscprintf(fmt, argCopy);
+    va_end(argCopy);
+    if (size < 0)
       return "";
-    }
-
-    cstr = new_cstr;
+    else
+      size++; // increment for null-termination
+#endif // TARGET_WINDOWS
   }
 
-  free(cstr);
-  return "";
+  return ""; // unreachable
 }
 
 wstring StringUtils::Format(const wchar_t *fmt, ...)
@@ -277,42 +285,44 @@ wstring StringUtils::Format(const wchar_t *fmt, ...)
 
 wstring StringUtils::FormatV(const wchar_t *fmt, va_list args)
 {
-  if (fmt == NULL)
+  if (!fmt || !fmt[0])
     return L"";
-  
+
   int size = FORMAT_BLOCK_SIZE;
   va_list argCopy;
   
-  wchar_t *cstr = reinterpret_cast<wchar_t*>(malloc(sizeof(wchar_t) * size));
-  if (cstr == NULL)
-    return L"";
-  
   while (1)
   {
+    wchar_t *cstr = reinterpret_cast<wchar_t*>(malloc(sizeof(wchar_t) * size));
+    if (!cstr)
+      return L"";
+
     va_copy(argCopy, args);
-    
     int nActual = vswprintf(cstr, size, fmt, argCopy);
     va_end(argCopy);
     
     if (nActual > -1 && nActual < size) // We got a valid result
     {
-      wstring str(cstr, nActual);
+      std::wstring str(cstr, nActual);
       free(cstr);
       return str;
     }
+    free(cstr);
+
+#ifndef TARGET_WINDOWS
     if (nActual > -1)                   // Exactly what we will need (glibc 2.1)
       size = nActual + 1;
     else                                // Let's try to double the size (glibc 2.0)
       size *= 2;
-    
-    wchar_t *new_cstr = reinterpret_cast<wchar_t*>(realloc(cstr, sizeof(wchar_t) * size));
-    if (new_cstr == NULL)
-    {
-      free(cstr);
+#else  // TARGET_WINDOWS
+    va_copy(argCopy, args);
+    size = _vscwprintf(fmt, argCopy);
+    va_end(argCopy);
+    if (size < 0)
       return L"";
-    }
-    
-    cstr = new_cstr;
+    else
+      size++; // increment for null-termination
+#endif // TARGET_WINDOWS
   }
   
   return L"";
@@ -347,7 +357,7 @@ wchar_t toupperUnicode(const wchar_t& c)
 
 void StringUtils::ToUpper(string &str)
 {
-  transform(str.begin(), str.end(), str.begin(), ::toupper);
+  std::transform(str.begin(), str.end(), str.begin(), ::toupper);
 }
 
 void StringUtils::ToUpper(wstring &str)
@@ -363,6 +373,31 @@ void StringUtils::ToLower(string &str)
 void StringUtils::ToLower(wstring &str)
 {
   transform(str.begin(), str.end(), str.begin(), tolowerUnicode);
+}
+
+void StringUtils::ToCapitalize(string &str)
+{
+  std::wstring wstr;
+  g_charsetConverter.utf8ToW(str, wstr);
+  ToCapitalize(wstr);
+  g_charsetConverter.wToUTF8(wstr, str);
+}
+
+void StringUtils::ToCapitalize(std::wstring &str)
+{
+  const std::locale& loc = g_langInfo.GetSystemLocale();
+  bool isFirstLetter = true;
+  for (std::wstring::iterator it = str.begin(); it < str.end(); ++it)
+  {
+    // capitalize after spaces and punctuation characters (except apostrophes)
+    if (std::isspace(*it, loc) || (std::ispunct(*it, loc) && *it != '\''))
+      isFirstLetter = true;
+    else if (isFirstLetter)
+    {
+      *it = std::toupper(*it, loc);
+      isFirstLetter = false;
+    }
+  }
 }
 
 bool StringUtils::EqualsNoCase(const std::string &str1, const std::string &str2)
@@ -420,7 +455,7 @@ string StringUtils::Mid(const string &str, size_t first, size_t count /* = strin
   if (first > str.size())
     return string();
   
-  ASSERT(first + count <= str.size());
+  assert(first + count <= str.size());
   
   return str.substr(first, count);
 }
@@ -506,7 +541,7 @@ std::string& StringUtils::RemoveDuplicatedSpacesAndTabs(std::string& str)
 int StringUtils::Replace(string &str, char oldChar, char newChar)
 {
   int replacedChars = 0;
-  for (string::iterator it = str.begin(); it != str.end(); it++)
+  for (string::iterator it = str.begin(); it != str.end(); ++it)
   {
     if (*it == oldChar)
     {
@@ -645,116 +680,72 @@ bool StringUtils::EndsWithNoCase(const std::string &str1, const char *s2)
   return true;
 }
 
-void StringUtils::JoinString(const CStdStringArray &strings, const CStdString& delimiter, CStdString& result)
+std::string StringUtils::Join(const vector<string> &strings, const std::string& delimiter)
 {
-  result = "";
-  for(CStdStringArray::const_iterator it = strings.begin(); it != strings.end(); it++ )
+  std::string result;
+  for(vector<string>::const_iterator it = strings.begin(); it != strings.end(); ++it )
     result += (*it) + delimiter;
-
-  if(result != "")
-    result.erase(result.size()-delimiter.size(), delimiter.size());
-}
-
-CStdString StringUtils::JoinString(const CStdStringArray &strings, const CStdString& delimiter)
-{
-  CStdString result;
-  JoinString(strings, delimiter, result);
-  return result;
-}
-
-CStdString StringUtils::Join(const vector<string> &strings, const CStdString& delimiter)
-{
-  CStdStringArray strArray;
-  for (unsigned int index = 0; index < strings.size(); index++)
-    strArray.push_back(strings.at(index));
-
-  return JoinString(strArray, delimiter);
-}
-
-// Splits the string input into pieces delimited by delimiter.
-// if 2 delimiters are in a row, it will include the empty string between them.
-// added MaxStrings parameter to restrict the number of returned substrings (like perl and python)
-int StringUtils::SplitString(const CStdString& input, const CStdString& delimiter, CStdStringArray &results, unsigned int iMaxStrings /* = 0 */)
-{
-  size_t iPos = std::string::npos;
-  size_t newPos = std::string::npos;
-  size_t sizeS2 = delimiter.size();
-  size_t isize = input.size();
-
-  results.clear();
-
-  vector<unsigned int> positions;
-
-  newPos = input.find(delimiter, 0);
-
-  if (newPos == std::string::npos)
-  {
-    results.push_back(input);
-    return 1;
-  }
-
-  while (newPos != std::string::npos)
-  {
-    positions.push_back(newPos);
-    iPos = newPos;
-    newPos = input.find(delimiter, iPos + sizeS2);
-  }
-
-  // numFound is the number of delimiters which is one less
-  // than the number of substrings
-  unsigned int numFound = positions.size();
-  if (iMaxStrings > 0 && numFound >= iMaxStrings)
-    numFound = iMaxStrings - 1;
-
-  for ( unsigned int i = 0; i <= numFound; i++ )
-  {
-    CStdString s;
-    if ( i == 0 )
-    {
-      if ( i == numFound )
-        s = input;
-      else
-        s = input.substr(i, positions[i]);
-    }
-    else
-    {
-      size_t offset = positions[i - 1] + sizeS2;
-      if ( offset < isize )
-      {
-        if ( i == numFound )
-          s = input.substr(offset);
-        else if ( i > 0 )
-          s = input.substr( positions[i - 1] + sizeS2,
-                         positions[i] - positions[i - 1] - sizeS2 );
-      }
-    }
-    results.push_back(s);
-  }
-  // return the number of substrings
-  return results.size();
-}
-
-CStdStringArray StringUtils::SplitString(const CStdString& input, const CStdString& delimiter, unsigned int iMaxStrings /* = 0 */)
-{
-  CStdStringArray result;
-  SplitString(input, delimiter, result, iMaxStrings);
+  
+  if (!result.empty())
+    result.erase(result.size() - delimiter.size());
   return result;
 }
 
 vector<string> StringUtils::Split(const std::string& input, const std::string& delimiter, unsigned int iMaxStrings /* = 0 */)
 {
-  CStdStringArray result;
-  SplitString(input, delimiter, result, iMaxStrings);
+  std::vector<std::string> results;
+  if (input.empty())
+    return results;
+  if (delimiter.empty())
+  {
+    results.push_back(input);
+    return results;
+  }
 
-  vector<string> strArray;
-  for (unsigned int index = 0; index < result.size(); index++)
-    strArray.push_back(result.at(index));
+  const size_t delimLen = delimiter.length();
+  size_t nextDelim;
+  size_t textPos = 0;
+  do
+  {
+    if (--iMaxStrings == 0)
+    {
+      results.push_back(input.substr(textPos));
+      break;
+    }
+    nextDelim = input.find(delimiter, textPos);
+    results.push_back(input.substr(textPos, nextDelim - textPos));
+    textPos = nextDelim + delimLen;
+  } while (nextDelim != std::string::npos);
 
-  return strArray;
+  return results;
 }
 
+std::vector<std::string> StringUtils::Split(const std::string& input, const char delimiter, size_t iMaxStrings /*= 0*/)
+{
+  std::vector<std::string> results;
+  if (input.empty())
+    return results;
+
+  size_t nextDelim;
+  size_t textPos = 0;
+  do
+  {
+    if (--iMaxStrings == 0)
+    {
+      results.push_back(input.substr(textPos));
+      break;
+    }
+    nextDelim = input.find(delimiter, textPos);
+    results.push_back(input.substr(textPos, nextDelim - textPos));
+    textPos = nextDelim + 1;
+  } while (nextDelim != std::string::npos);
+
+  return results;
+}
+
+
 // returns the number of occurrences of strFind in strInput.
-int StringUtils::FindNumber(const CStdString& strInput, const CStdString &strFind)
+int StringUtils::FindNumber(const std::string& strInput, const std::string &strFind)
 {
   size_t pos = strInput.find(strFind, 0);
   int numfound = 0;
@@ -776,7 +767,7 @@ int64_t StringUtils::AlphaNumericCompare(const wchar_t *left, const wchar_t *rig
   wchar_t *ld, *rd;
   wchar_t lc, rc;
   int64_t lnum, rnum;
-  const collate<wchar_t>& coll = use_facet< collate<wchar_t> >( locale() );
+  const collate<wchar_t>& coll = use_facet< collate<wchar_t> >(g_langInfo.GetSystemLocale());
   int cmp_res = 0;
   while (*l != 0 && *r != 0)
   {
@@ -832,23 +823,22 @@ int64_t StringUtils::AlphaNumericCompare(const wchar_t *left, const wchar_t *rig
   return 0; // files are the same
 }
 
-int StringUtils::DateStringToYYYYMMDD(const CStdString &dateString)
+int StringUtils::DateStringToYYYYMMDD(const std::string &dateString)
 {
-  CStdStringArray days;
-  int splitCount = StringUtils::SplitString(dateString, "-", days);
-  if (splitCount == 1)
+  vector<string> days = StringUtils::Split(dateString, '-');
+  if (days.size() == 1)
     return atoi(days[0].c_str());
-  else if (splitCount == 2)
+  else if (days.size() == 2)
     return atoi(days[0].c_str())*100+atoi(days[1].c_str());
-  else if (splitCount == 3)
+  else if (days.size() == 3)
     return atoi(days[0].c_str())*10000+atoi(days[1].c_str())*100+atoi(days[2].c_str());
   else
     return -1;
 }
 
-long StringUtils::TimeStringToSeconds(const CStdString &timeString)
+long StringUtils::TimeStringToSeconds(const std::string &timeString)
 {
-  CStdString strCopy(timeString);
+  std::string strCopy(timeString);
   StringUtils::Trim(strCopy);
   if(StringUtils::EndsWithNoCase(strCopy, " min"))
   {
@@ -857,19 +847,18 @@ long StringUtils::TimeStringToSeconds(const CStdString &timeString)
   }
   else
   {
-    CStdStringArray secs;
-    StringUtils::SplitString(strCopy, ":", secs);
+    vector<string> secs = StringUtils::Split(strCopy, ':');
     int timeInSecs = 0;
     for (unsigned int i = 0; i < 3 && i < secs.size(); i++)
     {
       timeInSecs *= 60;
-      timeInSecs += atoi(secs[i]);
+      timeInSecs += atoi(secs[i].c_str());
     }
     return timeInSecs;
   }
 }
 
-CStdString StringUtils::SecondsToTimeString(long lSeconds, TIME_FORMAT format)
+std::string StringUtils::SecondsToTimeString(long lSeconds, TIME_FORMAT format)
 {
   int hh = lSeconds / 3600;
   lSeconds = lSeconds % 3600;
@@ -878,7 +867,7 @@ CStdString StringUtils::SecondsToTimeString(long lSeconds, TIME_FORMAT format)
 
   if (format == TIME_FORMAT_GUESS)
     format = (hh >= 1) ? TIME_FORMAT_HH_MM_SS : TIME_FORMAT_MM_SS;
-  CStdString strHMS;
+  std::string strHMS;
   if (format & TIME_FORMAT_HH)
     strHMS += StringUtils::Format("%02.2i", hh);
   else if (format & TIME_FORMAT_H)
@@ -890,7 +879,7 @@ CStdString StringUtils::SecondsToTimeString(long lSeconds, TIME_FORMAT format)
   return strHMS;
 }
 
-bool StringUtils::IsNaturalNumber(const CStdString& str)
+bool StringUtils::IsNaturalNumber(const std::string& str)
 {
   size_t i = 0, n = 0;
   // allow whitespace,digits,whitespace
@@ -905,7 +894,7 @@ bool StringUtils::IsNaturalNumber(const CStdString& str)
   return i == str.size() && n > 0;
 }
 
-bool StringUtils::IsInteger(const CStdString& str)
+bool StringUtils::IsInteger(const std::string& str)
 {
   size_t i = 0, n = 0;
   // allow whitespace,-,digits,whitespace
@@ -944,25 +933,25 @@ int StringUtils::asciixdigitvalue(char chr)
 }
 
 
-void StringUtils::RemoveCRLF(CStdString& strLine)
+void StringUtils::RemoveCRLF(std::string& strLine)
 {
   StringUtils::TrimRight(strLine, "\n\r");
 }
 
-CStdString StringUtils::SizeToString(int64_t size)
+std::string StringUtils::SizeToString(int64_t size)
 {
-  CStdString strLabel;
-  const char prefixes[] = {' ','k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'};
+  std::string strLabel;
+  const char prefixes[] = {' ', 'k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'};
   unsigned int i = 0;
   double s = (double)size;
-  while (i < sizeof(prefixes)/sizeof(prefixes[0]) && s >= 1000.0)
+  while (i < ARRAY_SIZE(prefixes) && s >= 1000.0)
   {
     s /= 1024.0;
     i++;
   }
 
   if (!i)
-    strLabel = StringUtils::Format("%.0lf %cB ", s, prefixes[i]);
+    strLabel = StringUtils::Format("%.0lf B", s);
   else if (s >= 100.0)
     strLabel = StringUtils::Format("%.1lf %cB", s, prefixes[i]);
   else
@@ -1042,11 +1031,11 @@ size_t StringUtils::FindWords(const char *str, const char *wordLowerCase)
     // and repeat until we're done
   } while (*s);
 
-  return CStdString::npos;
+  return std::string::npos;
 }
 
 // assumes it is called from after the first open bracket is found
-int StringUtils::FindEndBracket(const CStdString &str, char opener, char closer, int startPos)
+int StringUtils::FindEndBracket(const std::string &str, char opener, char closer, int startPos)
 {
   int blocks = 1;
   for (unsigned int i = startPos; i < str.size(); i++)
@@ -1061,10 +1050,10 @@ int StringUtils::FindEndBracket(const CStdString &str, char opener, char closer,
     }
   }
 
-  return (int)CStdString::npos;
+  return (int)std::string::npos;
 }
 
-void StringUtils::WordToDigits(CStdString &word)
+void StringUtils::WordToDigits(std::string &word)
 {
   static const char word_to_letter[] = "22233344455566677778889999";
   StringUtils::ToLower(word);
@@ -1082,7 +1071,7 @@ void StringUtils::WordToDigits(CStdString &word)
   }
 }
 
-CStdString StringUtils::CreateUUID()
+std::string StringUtils::CreateUUID()
 {
   /* This function generate a DCE 1.1, ISO/IEC 11578:1996 and IETF RFC-4122
   * Version 4 conform local unique UUID based upon random number generation.
@@ -1129,25 +1118,25 @@ CStdString StringUtils::CreateUUID()
   return UuidStrTmp;
 }
 
-bool StringUtils::ValidateUUID(const CStdString &uuid)
+bool StringUtils::ValidateUUID(const std::string &uuid)
 {
   CRegExp guidRE;
   guidRE.RegComp(ADDON_GUID_RE);
   return (guidRE.RegFind(uuid.c_str()) == 0);
 }
 
-double StringUtils::CompareFuzzy(const CStdString &left, const CStdString &right)
+double StringUtils::CompareFuzzy(const std::string &left, const std::string &right)
 {
   return (0.5 + fstrcmp(left.c_str(), right.c_str(), 0.0) * (left.length() + right.length())) / 2.0;
 }
 
-int StringUtils::FindBestMatch(const CStdString &str, const CStdStringArray &strings, double &matchscore)
+int StringUtils::FindBestMatch(const std::string &str, const vector<string> &strings, double &matchscore)
 {
   int best = -1;
   matchscore = 0;
 
   int i = 0;
-  for (CStdStringArray::const_iterator it = strings.begin(); it != strings.end(); it++, i++)
+  for (vector<string>::const_iterator it = strings.begin(); it != strings.end(); ++it, i++)
   {
     int maxlength = max(str.length(), it->length());
     double score = StringUtils::CompareFuzzy(str, *it) / maxlength;
@@ -1160,9 +1149,9 @@ int StringUtils::FindBestMatch(const CStdString &str, const CStdStringArray &str
   return best;
 }
 
-bool StringUtils::ContainsKeyword(const CStdString &str, const CStdStringArray &keywords)
+bool StringUtils::ContainsKeyword(const std::string &str, const vector<string> &keywords)
 {
-  for (CStdStringArray::const_iterator it = keywords.begin(); it != keywords.end(); it++)
+  for (vector<string>::const_iterator it = keywords.begin(); it != keywords.end(); ++it)
   {
     if (str.find(*it) != str.npos)
       return true;
@@ -1193,21 +1182,48 @@ std::string StringUtils::Paramify(const std::string &param)
   return "\"" + result + "\"";
 }
 
+std::vector<std::string> StringUtils::Tokenize(const std::string &input, const std::string &delimiters)
+{
+  std::vector<std::string> tokens;
+  Tokenize(input, tokens, delimiters);
+  return tokens;
+}
+
 void StringUtils::Tokenize(const std::string& input, std::vector<std::string>& tokens, const std::string& delimiters)
 {
-  // Tokenize ripped from http://www.linuxselfhelp.com/HOWTO/C++Programming-HOWTO-7.html
+  tokens.clear();
   // Skip delimiters at beginning.
-  string::size_type lastPos = input.find_first_not_of(delimiters, 0);
-  // Find first "non-delimiter".
-  string::size_type pos = input.find_first_of(delimiters, lastPos);
-
-  while (string::npos != pos || string::npos != lastPos)
+  std::string::size_type dataPos = input.find_first_not_of(delimiters);
+  while (dataPos != std::string::npos)
   {
+    // Find next delimiter
+    const std::string::size_type nextDelimPos = input.find_first_of(delimiters, dataPos);
     // Found a token, add it to the vector.
-    tokens.push_back(input.substr(lastPos, pos - lastPos));
+    tokens.push_back(input.substr(dataPos, nextDelimPos - dataPos));
     // Skip delimiters.  Note the "not_of"
-    lastPos = input.find_first_not_of(delimiters, pos);
-    // Find next "non-delimiter"
-    pos = input.find_first_of(delimiters, lastPos);
+    dataPos = input.find_first_not_of(delimiters, nextDelimPos);
+  }
+}
+
+std::vector<std::string> StringUtils::Tokenize(const std::string &input, const char delimiter)
+{
+  std::vector<std::string> tokens;
+  Tokenize(input, tokens, delimiter);
+  return tokens;
+}
+
+void StringUtils::Tokenize(const std::string& input, std::vector<std::string>& tokens, const char delimiter)
+{
+  tokens.clear();
+  // Skip delimiters at beginning.
+  std::string::size_type dataPos = input.find_first_not_of(delimiter);
+  while (dataPos != std::string::npos)
+  {
+    // Find next delimiter
+    const std::string::size_type nextDelimPos = input.find(delimiter, dataPos);
+    // Found a token, add it to the vector.
+    tokens.push_back(input.substr(dataPos, nextDelimPos - dataPos));
+    // Skip delimiters.  Note the "not_of"
+    dataPos = input.find_first_not_of(delimiter, nextDelimPos);
   }
 }

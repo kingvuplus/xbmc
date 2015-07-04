@@ -18,13 +18,13 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
+#include <Platinum/Source/Platinum/Platinum.h>
+#include <Platinum/Source/Devices/MediaRenderer/PltMediaController.h>
+#include <Platinum/Source/Devices/MediaServer/PltDidl.h>
 
 #include "UPnPPlayer.h"
 #include "UPnP.h"
 #include "UPnPInternal.h"
-#include "Platinum.h"
-#include "PltMediaController.h"
-#include "PltDidl.h"
 #include "FileItem.h"
 #include "threads/Event.h"
 #include "utils/log.h"
@@ -37,7 +37,7 @@
 #include "Application.h"
 #include "dialogs/GUIDialogBusy.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/Key.h"
+#include "input/Key.h"
 #include "dialogs/GUIDialogYesNo.h"
 
 
@@ -226,7 +226,7 @@ int CUPnPPlayer::PlayFile(const CFileItem& file, const CPlayerOptions& options, 
   else if (item.IsMusicDb())
     thumb_loader = NPT_Reference<CThumbLoader>(new CMusicThumbLoader());
 
-  obj = BuildObject(item, path, false, thumb_loader, NULL, CUPnP::GetServer());
+  obj = BuildObject(item, path, false, thumb_loader, NULL, CUPnP::GetServer(), UPnPPlayer);
   if(obj.IsNull()) goto failed;
 
   NPT_CHECK_LABEL_SEVERE(PLT_Didl::ToDidl(*obj, "", tmp), failed_todidl);
@@ -413,7 +413,7 @@ bool CUPnPPlayer::QueueNextFile(const CFileItem& file)
     thumb_loader = NPT_Reference<CThumbLoader>(new CMusicThumbLoader());
 
 
-  obj = BuildObject(item, path, 0, thumb_loader, NULL, CUPnP::GetServer());
+  obj = BuildObject(item, path, 0, thumb_loader, NULL, CUPnP::GetServer(), UPnPPlayer);
   if(!obj.IsNull())
   {
     NPT_CHECK_LABEL_SEVERE(PLT_Didl::ToDidl(*obj, "", tmp), failed);
@@ -591,7 +591,7 @@ failed:
   return 0;
 };
 
-CStdString CUPnPPlayer::GetPlayingTitle()
+std::string CUPnPPlayer::GetPlayingTitle()
 {
   return "";
 };
@@ -603,7 +603,7 @@ bool CUPnPPlayer::OnAction(const CAction &action)
     case ACTION_STOP:
       if(IsPlaying())
       {
-        if(CGUIDialogYesNo::ShowAndGetInput(37022, 37023, 0, 0)) /* stop on remote system */
+        if(CGUIDialogYesNo::ShowAndGetInput(37022, 37023)) /* stop on remote system */
           m_stopremote = true;
         else
           m_stopremote = false;

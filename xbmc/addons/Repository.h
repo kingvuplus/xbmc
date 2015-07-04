@@ -21,11 +21,12 @@
 
 #include "Addon.h"
 #include "utils/Job.h"
+#include "utils/ProgressJob.h"
 
 namespace ADDON
 {
   class CRepository;
-  typedef boost::shared_ptr<CRepository> RepositoryPtr;
+  typedef std::shared_ptr<CRepository> RepositoryPtr;
   class CRepository : public CAddon
   {
   public:
@@ -33,8 +34,6 @@ namespace ADDON
     CRepository(const AddonProps& props);
     CRepository(const cp_extension_t *props);
     virtual ~CRepository();
-
-    std::string Checksum() const;
 
     /*! \brief Get the md5 hash for an addon.
      \param the addon in question.
@@ -57,13 +56,17 @@ namespace ADDON
     typedef std::vector<DirInfo> DirList;
     DirList m_dirs;
 
-    static VECADDONS Parse(const DirInfo& dir);
+    static bool Parse(const DirInfo& dir, VECADDONS& addons);
     static std::string FetchChecksum(const std::string& url);
+
+    virtual void OnPostInstall(bool update, bool modal);
+    virtual void OnPostUnInstall();
+
   private:
     CRepository(const CRepository &rhs);
   };
 
-  class CRepositoryUpdateJob : public CJob
+  class CRepositoryUpdateJob : public CProgressJob
   {
   public:
     CRepositoryUpdateJob(const VECADDONS& repos);
@@ -72,7 +75,7 @@ namespace ADDON
     virtual const char *GetType() const { return "repoupdate"; };
     virtual bool DoWork();
   private:
-    VECADDONS GrabAddons(RepositoryPtr& repo);
+    bool GrabAddons(const RepositoryPtr& repo, VECADDONS& addons);
 
     VECADDONS m_repos;
   };

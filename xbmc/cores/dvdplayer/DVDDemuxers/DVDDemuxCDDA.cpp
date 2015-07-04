@@ -21,7 +21,6 @@
 #include "DVDInputStreams/DVDInputStream.h"
 #include "DVDDemuxCDDA.h"
 #include "DVDDemuxUtils.h"
-#include "utils/log.h"
 #include "../DVDClock.h"
 
 // CDDA audio demuxer based on AirTunes audio Demuxer.
@@ -190,7 +189,7 @@ std::string CDVDDemuxCDDA::GetFileName()
     return "";
 }
 
-void CDVDDemuxCDDA::GetStreamCodecName(int iStreamId, CStdString &strName)
+void CDVDDemuxCDDA::GetStreamCodecName(int iStreamId, std::string &strName)
 {
   if (m_stream && iStreamId == 0)
     strName = "pcm";

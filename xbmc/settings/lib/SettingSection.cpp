@@ -27,34 +27,34 @@
 
 template<class T> void addISetting(const TiXmlNode *node, const T &item, std::vector<T> &items)
 {
-  if (node == NULL)
-    return;
-
-  const TiXmlElement *element = node->ToElement();
-  if (element == NULL)
-    return;
-
-  // check if there is a "before" or "after" attribute to place the setting at a specific position
-  int position = -1; // -1 => end, 0 => before, 1 => after
-  const char *positionId = element->Attribute(SETTING_XML_ATTR_BEFORE);
-  if (positionId != NULL && strlen(positionId) > 0)
-    position = 0;
-  else if ((positionId = element->Attribute(SETTING_XML_ATTR_AFTER)) != NULL && strlen(positionId) > 0)
-    position = 1;
-
-  if (positionId != NULL && strlen(positionId) > 0 && position >= 0)
+  if (node != NULL)
   {
-    for (typename std::vector<T>::iterator it = items.begin(); it != items.end(); ++it)
+    const TiXmlElement *element = node->ToElement();
+    if (element != NULL)
     {
-      if (!StringUtils::EqualsNoCase((*it)->GetId(), positionId))
-        continue;
+      // check if there is a "before" or "after" attribute to place the setting at a specific position
+      int position = -1; // -1 => end, 0 => before, 1 => after
+      const char *positionId = element->Attribute(SETTING_XML_ATTR_BEFORE);
+      if (positionId != NULL && strlen(positionId) > 0)
+        position = 0;
+      else if ((positionId = element->Attribute(SETTING_XML_ATTR_AFTER)) != NULL && strlen(positionId) > 0)
+        position = 1;
 
-      typename std::vector<T>::iterator positionIt = it;
-      if (position == 1)
-        ++positionIt;
+      if (positionId != NULL && strlen(positionId) > 0 && position >= 0)
+      {
+        for (typename std::vector<T>::iterator it = items.begin(); it != items.end(); ++it)
+        {
+          if (!StringUtils::EqualsNoCase((*it)->GetId(), positionId))
+            continue;
 
-      items.insert(positionIt, item);
-      return;
+          typename std::vector<T>::iterator positionIt = it;
+          if (position == 1)
+            ++positionIt;
+
+          items.insert(positionIt, item);
+          return;
+        }
+      }
     }
   }
 
@@ -63,6 +63,7 @@ template<class T> void addISetting(const TiXmlNode *node, const T &item, std::ve
 
 CSettingGroup::CSettingGroup(const std::string &id, CSettingsManager *settingsManager /* = NULL */)
   : ISetting(id, settingsManager)
+  , m_control(NULL)
 { }
 
 CSettingGroup::~CSettingGroup()
@@ -70,6 +71,8 @@ CSettingGroup::~CSettingGroup()
   for (SettingList::const_iterator setting = m_settings.begin(); setting != m_settings.end(); ++setting)
     delete *setting;
   m_settings.clear();
+  if (m_control)
+    delete m_control;
 }
 
 bool CSettingGroup::Deserialize(const TiXmlNode *node, bool update /* = false */)
@@ -77,6 +80,34 @@ bool CSettingGroup::Deserialize(const TiXmlNode *node, bool update /* = false */
   // handle <visible> conditions
   if (!ISetting::Deserialize(node, update))
     return false;
+
+  const TiXmlElement *controlElement = node->FirstChildElement(SETTING_XML_ELM_CONTROL);
+  if (controlElement != NULL)
+  {
+    const char* controlType = controlElement->Attribute(SETTING_XML_ATTR_TYPE);
+    if (controlType == NULL || strlen(controlType) <= 0)
+    {
+      CLog::Log(LOGERROR, "CSettingGroup: unable to read control type");
+      return false;
+    }
+
+    if (m_control != NULL)
+      delete m_control;
+
+    m_control = m_settingsManager->CreateControl(controlType);
+    if (m_control == NULL)
+    {
+      CLog::Log(LOGERROR, "CSettingGroup: unable to create new control \"%s\"", controlType);
+      return false;
+    }
+
+    if (!m_control->Deserialize(controlElement))
+    {
+      CLog::Log(LOGWARNING, "CSettingGroup: unable to read control \"%s\"", controlType);
+      delete m_control;
+      m_control = NULL;
+    }
+  }
 
   const TiXmlElement *settingElement = node->FirstChildElement(SETTING_XML_ELM_SETTING);
   while (settingElement != NULL)
@@ -140,9 +171,19 @@ SettingList CSettingGroup::GetSettings(SettingLevel level) const
   return settings;
 }
 
+void CSettingGroup::AddSetting(CSetting *setting)
+{
+  addISetting(NULL, setting, m_settings);
+}
+
+void CSettingGroup::AddSettings(const SettingList &settings)
+{
+  for (SettingList::const_iterator itSetting = settings.begin(); itSetting != settings.end(); ++itSetting)
+    addISetting(NULL, *itSetting, m_settings);
+}
+
 CSettingCategory::CSettingCategory(const std::string &id, CSettingsManager *settingsManager /* = NULL */)
   : ISetting(id, settingsManager),
-    m_label(-1), m_help(-1),
     m_accessCondition(settingsManager)
 { }
 
@@ -159,16 +200,6 @@ bool CSettingCategory::Deserialize(const TiXmlNode *node, bool update /* = false
   // handle <visible> conditions
   if (!ISetting::Deserialize(node, update))
     return false;
-    
-  const TiXmlElement *element = node->ToElement();
-  if (element == NULL)
-    return false;
-    
-  int tmp = -1;
-  if (element->QueryIntAttribute(SETTING_XML_ATTR_LABEL, &tmp) == TIXML_SUCCESS && tmp > 0)
-    m_label = tmp;
-  if (element->QueryIntAttribute(SETTING_XML_ATTR_HELP, &tmp) == TIXML_SUCCESS && tmp > 0)
-    m_help = tmp;
 
   const TiXmlNode *accessNode = node->FirstChild(SETTING_XML_ELM_ACCESS);
   if (accessNode != NULL && !m_accessCondition.Deserialize(accessNode))
@@ -231,9 +262,19 @@ bool CSettingCategory::CanAccess() const
   return m_accessCondition.Check();
 }
 
+void CSettingCategory::AddGroup(CSettingGroup *group)
+{
+  addISetting(NULL, group, m_groups);
+}
+
+void CSettingCategory::AddGroups(const SettingGroupList &groups)
+{
+  for (SettingGroupList::const_iterator itGroup = groups.begin(); itGroup != groups.end(); ++itGroup)
+    addISetting(NULL, *itGroup, m_groups);
+}
+
 CSettingSection::CSettingSection(const std::string &id, CSettingsManager *settingsManager /* = NULL */)
-  : ISetting(id, settingsManager),
-    m_label(-1), m_help(-1)
+  : ISetting(id, settingsManager)
 { }
 
 CSettingSection::~CSettingSection()
@@ -249,16 +290,6 @@ bool CSettingSection::Deserialize(const TiXmlNode *node, bool update /* = false 
   // handle <visible> conditions
   if (!ISetting::Deserialize(node, update))
     return false;
-    
-  const TiXmlElement *element = node->ToElement();
-  if (element == NULL)
-    return false;
-
-  int tmp = -1;
-  if (element->QueryIntAttribute(SETTING_XML_ATTR_LABEL, &tmp) == TIXML_SUCCESS && tmp > 0)
-    m_label = tmp;
-  if (element->QueryIntAttribute(SETTING_XML_ATTR_HELP, &tmp) == TIXML_SUCCESS && tmp > 0)
-    m_help = tmp;
     
   const TiXmlNode *categoryNode = node->FirstChild(SETTING_XML_ELM_CATEGORY);
   while (categoryNode != NULL)
@@ -310,4 +341,15 @@ SettingCategoryList CSettingSection::GetCategories(SettingLevel level) const
   }
 
   return categories;
+}
+
+void CSettingSection::AddCategory(CSettingCategory *category)
+{
+  addISetting(NULL, category, m_categories);
+}
+
+void CSettingSection::AddCategories(const SettingCategoryList &categories)
+{
+  for (SettingCategoryList::const_iterator itCategory = categories.begin(); itCategory != categories.end(); ++itCategory)
+    addISetting(NULL, *itCategory, m_categories);
 }

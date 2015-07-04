@@ -27,8 +27,9 @@
 #include "utils/BooleanLogic.h"
 
 class CSettingsManager;
+class CSetting;
 
-typedef bool (*SettingConditionCheck)(const std::string &condition, const std::string &value, const std::string &settingId);
+typedef bool (*SettingConditionCheck)(const std::string &condition, const std::string &value, const CSetting *setting, void *data);
 
 class ISettingCondition
 {
@@ -92,16 +93,16 @@ public:
   virtual ~CSettingConditionsManager();
 
   void AddCondition(const std::string &condition);
-  void AddCondition(const std::string &identifier, SettingConditionCheck condition);
+  void AddCondition(const std::string &identifier, SettingConditionCheck condition, void *data = NULL);
 
-  bool Check(const std::string &condition, const std::string &value = "", const std::string &settingId = "") const;
+  bool Check(const std::string &condition, const std::string &value = "", const CSetting *setting = NULL) const;
 
 private:
   CSettingConditionsManager(const CSettingConditionsManager&);
   CSettingConditionsManager const& operator=(CSettingConditionsManager const&);
   
-  typedef std::pair<std::string, SettingConditionCheck> SettingConditionPair;
-  typedef std::map<std::string, SettingConditionCheck> SettingConditionMap;
+  typedef std::pair<std::string, std::pair<SettingConditionCheck, void*> > SettingConditionPair;
+  typedef std::map<std::string, std::pair<SettingConditionCheck, void*> > SettingConditionMap;
 
   SettingConditionMap m_conditions;
   std::set<std::string> m_defines;

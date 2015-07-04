@@ -19,7 +19,9 @@
  *
  */
 
-#include "utils/StdString.h"
+#include "guilib/ISliderCallback.h"
+#include <stdlib.h>
+#include <string>
 
 class CGUIControl;
 class CGUIImage;
@@ -27,8 +29,11 @@ class CGUISpinControlEx;
 class CGUIEditControl;
 class CGUIButtonControl;
 class CGUIRadioButtonControl;
+class CGUISettingsSliderControl;
+class CGUILabelControl;
 
 class CSetting;
+class CSettingControlSlider;
 class CSettingString;
 class CSettingPath;
 
@@ -71,14 +76,22 @@ public:
    */
   bool IsEnabled() const;
 
+  /*!
+   \brief Returns whether the setting's value is valid or not
+   */
+  bool IsValid() const { return m_valid; }
+
+  void SetValid(bool valid) { m_valid = valid; }
+
   virtual CGUIControl* GetControl() { return NULL; }
   virtual bool OnClick() { return false; }
-  virtual void Update();
+  virtual void Update(bool updateDisplayOnly = false);
   virtual void Clear() = 0;  ///< Clears the attached control
 protected:
   int m_id;
   CSetting* m_pSetting;
   bool m_delayed;
+  bool m_valid;
 };
 
 class CGUIControlRadioButtonSetting : public CGUIControlBaseSetting
@@ -91,7 +104,7 @@ public:
 
   virtual CGUIControl* GetControl() { return (CGUIControl*)m_pRadioButton; }
   virtual bool OnClick();
-  virtual void Update();
+  virtual void Update(bool updateDisplayOnly = false);
   virtual void Clear() { m_pRadioButton = NULL; }
 private:
   CGUIRadioButtonControl *m_pRadioButton;
@@ -105,7 +118,7 @@ public:
 
   virtual CGUIControl* GetControl() { return (CGUIControl*)m_pSpin; }
   virtual bool OnClick();
-  virtual void Update();
+  virtual void Update(bool updateDisplayOnly = false);
   virtual void Clear() { m_pSpin = NULL; }
 private:
   void FillControl();
@@ -121,7 +134,7 @@ public:
 
   virtual CGUIControl* GetControl() { return (CGUIControl*)m_pButton; }
   virtual bool OnClick();
-  virtual void Update();
+  virtual void Update(bool updateDisplayOnly = false);
   virtual void Clear() { m_pButton = NULL; }
 private:
   static bool GetItems(const CSetting *setting, CFileItemList &items);
@@ -131,7 +144,7 @@ private:
   CGUIButtonControl *m_pButton;
 };
 
-class CGUIControlButtonSetting : public CGUIControlBaseSetting
+class CGUIControlButtonSetting : public CGUIControlBaseSetting, protected ISliderCallback
 {
 public:
   CGUIControlButtonSetting(CGUIButtonControl* pButton, int id, CSetting *pSetting);
@@ -139,10 +152,14 @@ public:
 
   virtual CGUIControl* GetControl() { return (CGUIControl*)m_pButton; }
   virtual bool OnClick();
-  virtual void Update();
+  virtual void Update(bool updateDisplayOnly = false);
   virtual void Clear() { m_pButton = NULL; }
 
   static bool GetPath(CSettingPath *pathSetting);
+protected:
+  // implementations of ISliderCallback
+  virtual void OnSliderChange(void *data, CGUISliderControl *slider);
+
 private:
   CGUIButtonControl *m_pButton;
 };
@@ -155,12 +172,44 @@ public:
 
   virtual CGUIControl* GetControl() { return (CGUIControl*)m_pEdit; }
   virtual bool OnClick();
-  virtual void Update();
+  virtual void Update(bool updateDisplayOnly = false);
   virtual void Clear() { m_pEdit = NULL; }
 private:
   static bool InputValidation(const std::string &input, void *data);
 
   CGUIEditControl *m_pEdit;
+};
+
+class CGUIControlSliderSetting : public CGUIControlBaseSetting
+{
+public:
+  CGUIControlSliderSetting(CGUISettingsSliderControl* pSlider, int id, CSetting *pSetting);
+  virtual ~CGUIControlSliderSetting();
+
+  virtual CGUIControl* GetControl() { return (CGUIControl*)m_pSlider; }
+  virtual bool OnClick();
+  virtual void Update(bool updateDisplayOnly = false);
+  virtual void Clear() { m_pSlider = NULL; }
+
+  static std::string GetText(const CSettingControlSlider *control, const CVariant &value, const CVariant &minimum, const CVariant &step, const CVariant &maximum);
+
+private:
+  CGUISettingsSliderControl *m_pSlider;
+};
+
+class CGUIControlRangeSetting : public CGUIControlBaseSetting
+{
+public:
+  CGUIControlRangeSetting(CGUISettingsSliderControl* pSlider, int id, CSetting *pSetting);
+  virtual ~CGUIControlRangeSetting();
+  
+  virtual CGUIControl* GetControl() { return (CGUIControl*)m_pSlider; }
+  virtual bool OnClick();
+  virtual void Update(bool updateDisplayOnly = false);
+  virtual void Clear() { m_pSlider = NULL; }
+
+private:
+  CGUISettingsSliderControl *m_pSlider;
 };
 
 class CGUIControlSeparatorSetting : public CGUIControlBaseSetting
@@ -175,4 +224,18 @@ public:
   virtual void Clear() { m_pImage = NULL; }
 private:
   CGUIImage *m_pImage;
+};
+
+class CGUIControlGroupTitleSetting : public CGUIControlBaseSetting
+{
+public:
+  CGUIControlGroupTitleSetting(CGUILabelControl* pLabel, int id);
+  virtual ~CGUIControlGroupTitleSetting();
+
+  virtual CGUIControl* GetControl() { return (CGUIControl*)m_pLabel; }
+  virtual bool OnClick() { return false; }
+  virtual void Update() {}
+  virtual void Clear() { m_pLabel = NULL; }
+private:
+  CGUILabelControl *m_pLabel;
 };

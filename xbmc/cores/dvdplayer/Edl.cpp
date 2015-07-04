@@ -22,23 +22,15 @@
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "filesystem/File.h"
-#include "filesystem/MythFile.h"
 #include "settings/AdvancedSettings.h"
 #include "utils/log.h"
 #include "utils/XBMCTinyXML.h"
 #include "PlatformDefs.h"
-#include "URL.h"
 #include "pvr/recordings/PVRRecordings.h"
 #include "pvr/PVRManager.h"
 
-extern "C"
-{
-#include "cmyth/include/cmyth/cmyth.h"
-}
-
 using namespace std;
 
-#define MPLAYER_EDL_FILENAME "special://temp/xbmc.edl"
 #define COMSKIP_HEADER "FILE PROCESSING COMPLETE"
 #define VIDEOREDO_HEADER "<Version>2"
 #define VIDEOREDO_TAG_CUT "<Cut>"
@@ -58,15 +50,12 @@ CEdl::~CEdl()
 
 void CEdl::Clear()
 {
-  if (CFile::Exists(MPLAYER_EDL_FILENAME))
-    CFile::Delete(MPLAYER_EDL_FILENAME);
-
   m_vecCuts.clear();
   m_vecSceneMarkers.clear();
   m_iTotalCutTime = 0;
 }
 
-bool CEdl::ReadEditDecisionLists(const CStdString& strMovie, const float fFrameRate, const int iHeight)
+bool CEdl::ReadEditDecisionLists(const std::string& strMovie, const float fFrameRate, const int iHeight)
 {
   /*
    * The frame rate hints returned from ffmpeg for the video stream do not appear to take into
@@ -116,8 +105,7 @@ bool CEdl::ReadEditDecisionLists(const CStdString& strMovie, const float fFrameR
    */
   if ((URIUtils::IsHD(strMovie)  || 
        URIUtils::IsSmb(strMovie) || 
-       URIUtils::IsNfs(strMovie) || 
-       URIUtils::IsAfp(strMovie))         &&
+       URIUtils::IsNfs(strMovie))         &&
       !URIUtils::IsPVRRecording(strMovie) &&
       !URIUtils::IsInternetStream(strMovie))
   {
@@ -139,20 +127,6 @@ bool CEdl::ReadEditDecisionLists(const CStdString& strMovie, const float fFrameR
     if (!bFound)
       bFound = ReadBeyondTV(strMovie);
   }
-  /*
-   * Or if the movie points to MythTV and isn't live TV.
-   */
-  else if (URIUtils::IsMythTV(strMovie)
-  &&      !URIUtils::IsLiveTV(strMovie))
-  {
-    Clear(); // Don't clear in either ReadMyth* method as they are intended to be used together.
-    CLog::Log(LOGDEBUG, "%s - Checking for commercial breaks within MythTV for: %s", __FUNCTION__,
-              strMovie.c_str());
-    bFound = ReadMythCommBreakList(strMovie, fFramesPerSecond);
-    CLog::Log(LOGDEBUG, "%s - Checking for cut list within MythTV for: %s", __FUNCTION__,
-              strMovie.c_str());
-    bFound |= ReadMythCutList(strMovie, fFramesPerSecond);
-  }
 
   /*
    * PVR Recordings
@@ -166,18 +140,16 @@ bool CEdl::ReadEditDecisionLists(const CStdString& strMovie, const float fFrameR
   }
 
   if (bFound)
-  {
     MergeShortCommBreaks();
-    WriteMPlayerEdl();
-  }
+
   return bFound;
 }
 
-bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
+bool CEdl::ReadEdl(const std::string& strMovie, const float fFramesPerSecond)
 {
   Clear();
 
-  CStdString edlFilename(URIUtils::ReplaceExtension(strMovie, ".edl"));
+  std::string edlFilename(URIUtils::ReplaceExtension(strMovie, ".edl"));
   if (!CFile::Exists(edlFilename))
     return false;
 
@@ -190,11 +162,10 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
 
   bool bError = false;
   int iLine = 0;
-  CStdString strBuffer;
-  while (edlFile.ReadString(strBuffer.GetBuffer(1024), 1024))
+  std::string strBuffer;
+  strBuffer.resize(1024);
+  while (edlFile.ReadString(&strBuffer[0], 1024))
   {
-    strBuffer.ReleaseBuffer();
-
     // Log any errors from previous run in the loop
     if (bError)
       CLog::Log(LOGWARNING, "%s - Error on line %i in EDL file: %s", __FUNCTION__, iLine, edlFilename.c_str());
@@ -203,22 +174,24 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
 
     iLine++;
 
-    CStdStringArray strFields(2);
+    char buffer1[513];
+    char buffer2[513];
     int iAction;
-    int iFieldsRead = sscanf(strBuffer, "%512s %512s %i", strFields[0].GetBuffer(512),
-                             strFields[1].GetBuffer(512), &iAction);
-    strFields[0].ReleaseBuffer();
-    strFields[1].ReleaseBuffer();
-
+    int iFieldsRead = sscanf(strBuffer.c_str(), "%512s %512s %i", buffer1,
+                             buffer2, &iAction);
     if (iFieldsRead != 2 && iFieldsRead != 3) // Make sure we read the right number of fields
     {
       bError = true;
       continue;
     }
 
+    vector<string> strFields(2);
+    strFields[0] = buffer1;
+    strFields[1] = buffer2;
+
     if (iFieldsRead == 2) // If only 2 fields read, then assume it's a scene marker.
     {
-      iAction = atoi(strFields[1]);
+      iAction = atoi(strFields[1].c_str());
       strFields[1] = strFields[0];
     }
 
@@ -231,8 +204,7 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
     {
       if (strFields[i].find(":") != std::string::npos) // HH:MM:SS.sss format
       {
-        CStdStringArray fieldParts;
-        StringUtils::SplitString(strFields[i], ".", fieldParts);
+        vector<string> fieldParts = StringUtils::Split(strFields[i], '.');
         if (fieldParts.size() == 1) // No ms
         {
           iCutStartEnd[i] = StringUtils::TimeStringToSeconds(fieldParts[0]) * (int64_t)1000; // seconds to ms
@@ -254,7 +226,7 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
           {
             fieldParts[1] = fieldParts[1].substr(0, 3);
           }
-          iCutStartEnd[i] = (int64_t)StringUtils::TimeStringToSeconds(fieldParts[0]) * 1000 + atoi(fieldParts[1]); // seconds to ms
+          iCutStartEnd[i] = (int64_t)StringUtils::TimeStringToSeconds(fieldParts[0]) * 1000 + atoi(fieldParts[1].c_str()); // seconds to ms
         }
         else
         {
@@ -268,7 +240,7 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
       }
       else // Plain old seconds in float format, e.g. 123.45
       {
-        iCutStartEnd[i] = (int64_t)(atof(strFields[i]) * 1000); // seconds to ms
+        iCutStartEnd[i] = (int64_t)(atof(strFields[i].c_str()) * 1000); // seconds to ms
       }
     }
 
@@ -323,8 +295,6 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
     }
   }
 
-  strBuffer.ReleaseBuffer();
-
   if (bError) // Log last line warning, if there was one, since while loop will have terminated.
     CLog::Log(LOGWARNING, "%s - Error on line %i in EDL file: %s", __FUNCTION__, iLine, edlFilename.c_str());
 
@@ -332,7 +302,7 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
 
   if (HasCut() || HasSceneMarker())
   {
-    CLog::Log(LOGDEBUG, "%s - Read %"PRIuS" cuts and %"PRIuS" scene markers in EDL file: %s", __FUNCTION__,
+    CLog::Log(LOGDEBUG, "%s - Read %" PRIuS" cuts and %" PRIuS" scene markers in EDL file: %s", __FUNCTION__,
               m_vecCuts.size(), m_vecSceneMarkers.size(), edlFilename.c_str());
     return true;
   }
@@ -344,11 +314,11 @@ bool CEdl::ReadEdl(const CStdString& strMovie, const float fFramesPerSecond)
   }
 }
 
-bool CEdl::ReadComskip(const CStdString& strMovie, const float fFramesPerSecond)
+bool CEdl::ReadComskip(const std::string& strMovie, const float fFramesPerSecond)
 {
   Clear();
 
-  CStdString comskipFilename(URIUtils::ReplaceExtension(strMovie, ".txt"));
+  std::string comskipFilename(URIUtils::ReplaceExtension(strMovie, ".txt"));
   if (!CFile::Exists(comskipFilename))
     return false;
 
@@ -383,7 +353,7 @@ bool CEdl::ReadComskip(const CStdString& strMovie, const float fFramesPerSecond)
   else
     fFrameRate /= 100; // Reduce by factor of 100 to get fps.
 
-  comskipFile.ReadString(szBuffer, 1023); // Line 2. Ignore "-------------"
+  (void)comskipFile.ReadString(szBuffer, 1023); // Line 2. Ignore "-------------"
 
   bool bValid = true;
   int iLine = 2;
@@ -413,7 +383,7 @@ bool CEdl::ReadComskip(const CStdString& strMovie, const float fFramesPerSecond)
   }
   else if (HasCut())
   {
-    CLog::Log(LOGDEBUG, "%s - Read %"PRIuS" commercial breaks from Comskip file: %s", __FUNCTION__, m_vecCuts.size(),
+    CLog::Log(LOGDEBUG, "%s - Read %" PRIuS" commercial breaks from Comskip file: %s", __FUNCTION__, m_vecCuts.size(),
               comskipFilename.c_str());
     return true;
   }
@@ -424,7 +394,7 @@ bool CEdl::ReadComskip(const CStdString& strMovie, const float fFramesPerSecond)
   }
 }
 
-bool CEdl::ReadVideoReDo(const CStdString& strMovie)
+bool CEdl::ReadVideoReDo(const std::string& strMovie)
 {
   /*
    * VideoReDo file is strange. Tags are XML like, but it isn't an XML file.
@@ -433,7 +403,7 @@ bool CEdl::ReadVideoReDo(const CStdString& strMovie)
    */
 
   Clear();
-  CStdString videoReDoFilename(URIUtils::ReplaceExtension(strMovie, ".Vprj"));
+  std::string videoReDoFilename(URIUtils::ReplaceExtension(strMovie, ".Vprj"));
   if (!CFile::Exists(videoReDoFilename))
     return false;
 
@@ -503,7 +473,7 @@ bool CEdl::ReadVideoReDo(const CStdString& strMovie)
   }
   else if (HasCut() || HasSceneMarker())
   {
-    CLog::Log(LOGDEBUG, "%s - Read %"PRIuS" cuts and %"PRIuS" scene markers in VideoReDo file: %s", __FUNCTION__,
+    CLog::Log(LOGDEBUG, "%s - Read %" PRIuS" cuts and %" PRIuS" scene markers in VideoReDo file: %s", __FUNCTION__,
               m_vecCuts.size(), m_vecSceneMarkers.size(), videoReDoFilename.c_str());
     return true;
   }
@@ -515,11 +485,11 @@ bool CEdl::ReadVideoReDo(const CStdString& strMovie)
   }
 }
 
-bool CEdl::ReadBeyondTV(const CStdString& strMovie)
+bool CEdl::ReadBeyondTV(const std::string& strMovie)
 {
   Clear();
 
-  CStdString beyondTVFilename(URIUtils::ReplaceExtension(strMovie, URIUtils::GetExtension(strMovie) + ".chapters.xml"));
+  std::string beyondTVFilename(URIUtils::ReplaceExtension(strMovie, URIUtils::GetExtension(strMovie) + ".chapters.xml"));
   if (!CFile::Exists(beyondTVFilename))
     return false;
 
@@ -564,11 +534,11 @@ bool CEdl::ReadBeyondTV(const CStdString& strMovie)
        * Don't use atoll even though it is more correct as it isn't natively supported by
        * Visual Studio.
        *
-       * GetText() returns 0 if there were any problems and will subsequently be rejected in AddCut().
+       * atof() returns 0 if there were any problems and will subsequently be rejected in AddCut().
        */
       Cut cut;
-      cut.start = (int64_t)(atof(pStart->GetText()) / 10000);
-      cut.end = (int64_t)(atof(pEnd->GetText()) / 10000);
+      cut.start = (int64_t)(atof(pStart->FirstChild()->Value()) / 10000);
+      cut.end = (int64_t)(atof(pEnd->FirstChild()->Value()) / 10000);
       cut.action = COMM_BREAK;
       bValid = AddCut(cut);
     }
@@ -586,7 +556,7 @@ bool CEdl::ReadBeyondTV(const CStdString& strMovie)
   }
   else if (HasCut())
   {
-    CLog::Log(LOGDEBUG, "%s - Read %"PRIuS" commercial breaks from Beyond TV file: %s", __FUNCTION__, m_vecCuts.size(),
+    CLog::Log(LOGDEBUG, "%s - Read %" PRIuS" commercial breaks from Beyond TV file: %s", __FUNCTION__, m_vecCuts.size(),
               beyondTVFilename.c_str());
     return true;
   }
@@ -598,7 +568,7 @@ bool CEdl::ReadBeyondTV(const CStdString& strMovie)
   }
 }
 
-bool CEdl::ReadPvr(const CStdString &strMovie)
+bool CEdl::ReadPvr(const std::string &strMovie)
 {
   if (!PVR::g_PVRManager.IsStarted())
   {
@@ -757,7 +727,7 @@ bool CEdl::AddCut(Cut& cut)
   return true;
 }
 
-bool CEdl::AddSceneMarker(const int64_t iSceneMarker)
+bool CEdl::AddSceneMarker(const int iSceneMarker)
 {
   Cut cut;
 
@@ -771,58 +741,17 @@ bool CEdl::AddSceneMarker(const int64_t iSceneMarker)
   return true;
 }
 
-bool CEdl::WriteMPlayerEdl()
-{
-  if (!HasCut())
-    return false;
-
-  CFile mplayerEdlFile;
-  if (!mplayerEdlFile.OpenForWrite(MPLAYER_EDL_FILENAME, true))
-  {
-    CLog::Log(LOGERROR, "%s - Error opening MPlayer EDL file for writing: %s", __FUNCTION__,
-              MPLAYER_EDL_FILENAME);
-    return false;
-  }
-
-  CStdString strBuffer;
-  for (int i = 0; i < (int)m_vecCuts.size(); i++)
-  {
-    /*
-     * MPlayer doesn't understand the scene marker (2) or commercial break (3) identifiers that XBMC
-     * supports in EDL files.
-     *
-     * http://www.mplayerhq.hu/DOCS/HTML/en/edl.html
-     *
-     * Write out mutes (1) directly. Treat commercial breaks as cuts (everything other than MUTES = 0).
-     */
-    strBuffer += StringUtils::Format("%.3f\t%.3f\t%i\n", (float)(m_vecCuts[i].start / 1000),
-                                               (float)(m_vecCuts[i].end / 1000),
-                                               m_vecCuts[i].action == MUTE ? 1 : 0);
-  }
-  mplayerEdlFile.Write(strBuffer.c_str(), strBuffer.size());
-  mplayerEdlFile.Close();
-
-  CLog::Log(LOGDEBUG, "%s - MPlayer EDL file written to: %s", __FUNCTION__, MPLAYER_EDL_FILENAME);
-
-  return true;
-}
-
-CStdString CEdl::GetMPlayerEdl()
-{
-  return MPLAYER_EDL_FILENAME;
-}
-
-bool CEdl::HasCut()
+bool CEdl::HasCut() const
 {
   return !m_vecCuts.empty();
 }
 
-int64_t CEdl::GetTotalCutTime()
+int CEdl::GetTotalCutTime() const
 {
   return m_iTotalCutTime; // ms
 }
 
-int64_t CEdl::RemoveCutTime(int64_t iSeek)
+int CEdl::RemoveCutTime(int iSeek) const
 {
   if (!HasCut())
     return iSeek;
@@ -832,7 +761,7 @@ int64_t CEdl::RemoveCutTime(int64_t iSeek)
    * requested is later than the end of the last recorded cut. For example, when calculating the
    * total duration for display.
    */
-  int64_t iCutTime = 0;
+  int iCutTime = 0;
   for (int i = 0; i < (int)m_vecCuts.size(); i++)
   {
     if (m_vecCuts[i].action == CUT)
@@ -846,12 +775,12 @@ int64_t CEdl::RemoveCutTime(int64_t iSeek)
   return iSeek - iCutTime;
 }
 
-int64_t CEdl::RestoreCutTime(int64_t iClock)
+int CEdl::RestoreCutTime(int iClock) const
 {
   if (!HasCut())
     return iClock;
 
-  int64_t iSeek = iClock;
+  int iSeek = iClock;
   for (int i = 0; i < (int)m_vecCuts.size(); i++)
   {
     if (m_vecCuts[i].action == CUT && iSeek >= m_vecCuts[i].start)
@@ -861,14 +790,14 @@ int64_t CEdl::RestoreCutTime(int64_t iClock)
   return iSeek;
 }
 
-bool CEdl::HasSceneMarker()
+bool CEdl::HasSceneMarker() const
 {
   return !m_vecSceneMarkers.empty();
 }
 
-CStdString CEdl::GetInfo()
+std::string CEdl::GetInfo() const
 {
-  CStdString strInfo = "";
+  std::string strInfo;
   if (HasCut())
   {
     int cutCount = 0, muteCount = 0, commBreakCount = 0;
@@ -895,12 +824,12 @@ CStdString CEdl::GetInfo()
       strInfo += StringUtils::Format("b%i", commBreakCount);
   }
   if (HasSceneMarker())
-    strInfo += StringUtils::Format("s%i", m_vecSceneMarkers.size());
+    strInfo += StringUtils::Format("s%" PRIuS, m_vecSceneMarkers.size());
 
   return strInfo.empty() ? "-" : strInfo;
 }
 
-bool CEdl::InCut(const int64_t iSeek, Cut *pCut)
+bool CEdl::InCut(const int iSeek, Cut *pCut) const
 {
   for (int i = 0; i < (int)m_vecCuts.size(); i++)
   {
@@ -918,14 +847,14 @@ bool CEdl::InCut(const int64_t iSeek, Cut *pCut)
   return false;
 }
 
-bool CEdl::GetNextSceneMarker(bool bPlus, const int64_t iClock, int64_t *iSceneMarker)
+bool CEdl::GetNextSceneMarker(bool bPlus, const int iClock, int *iSceneMarker) const
 {
   if (!HasSceneMarker())
     return false;
 
-  int64_t iSeek = RestoreCutTime(iClock);
+  int iSeek = RestoreCutTime(iClock);
 
-  int64_t iDiff = 10 * 60 * 60 * 1000; // 10 hours to ms.
+  int iDiff = 10 * 60 * 60 * 1000; // 10 hours to ms.
   bool bFound = false;
 
   if (bPlus) // Find closest scene forwards
@@ -964,114 +893,11 @@ bool CEdl::GetNextSceneMarker(bool bPlus, const int64_t iClock, int64_t *iSceneM
   return bFound;
 }
 
-CStdString CEdl::MillisecondsToTimeString(const int64_t iMilliseconds)
+std::string CEdl::MillisecondsToTimeString(const int iMilliseconds)
 {
-  CStdString strTimeString = StringUtils::SecondsToTimeString((long)(iMilliseconds / 1000), TIME_FORMAT_HH_MM_SS); // milliseconds to seconds
+  std::string strTimeString = StringUtils::SecondsToTimeString((long)(iMilliseconds / 1000), TIME_FORMAT_HH_MM_SS); // milliseconds to seconds
   strTimeString += StringUtils::Format(".%03i", iMilliseconds % 1000);
   return strTimeString;
-}
-
-bool CEdl::ReadMythCommBreakList(const CStdString& strMovie, const float fFramesPerSecond)
-{
-  /*
-   * Exists() sets up all the internal bits needed for GetCommBreakList().
-   */
-  CMythFile mythFile;
-  CURL url(strMovie);
-  if (!mythFile.Exists(url))
-    return false;
-
-  CLog::Log(LOGDEBUG, "%s - Reading commercial break list from MythTV for: %s", __FUNCTION__,
-            url.GetFileName().c_str());
-
-  cmyth_commbreaklist_t commbreaklist;
-  if (!mythFile.GetCommBreakList(commbreaklist))
-  {
-    CLog::Log(LOGERROR, "%s - Error getting commercial break list from MythTV for: %s", __FUNCTION__,
-              url.GetFileName().c_str());
-    return false;
-  }
-
-  for (int i = 0; i < (int)commbreaklist->commbreak_count; i++)
-  {
-    cmyth_commbreak_t commbreak = commbreaklist->commbreak_list[i];
-
-    Cut cut;
-    cut.action = COMM_BREAK;
-    cut.start = (int64_t)(commbreak->start_mark / fFramesPerSecond * 1000);
-    cut.end = (int64_t)(commbreak->end_mark / fFramesPerSecond * 1000);
-
-    if (!AddCut(cut)) // Log and continue with errors while still testing.
-      CLog::Log(LOGERROR, "%s - Invalid commercial break [%s - %s] found in MythTV for: %s. Continuing anyway.",
-                __FUNCTION__, MillisecondsToTimeString(cut.start).c_str(),
-                MillisecondsToTimeString(cut.end).c_str(), url.GetFileName().c_str());
-  }
-
-  if (HasCut())
-  {
-    CLog::Log(LOGDEBUG, "%s - Added %"PRIuS" commercial breaks from MythTV for: %s. Used detected frame rate of %.3f fps to calculate times from the frame markers.",
-              __FUNCTION__, m_vecCuts.size(), url.GetFileName().c_str(), fFramesPerSecond);
-    return true;
-  }
-  else
-  {
-    CLog::Log(LOGDEBUG, "%s - No commercial breaks found in MythTV for: %s", __FUNCTION__,
-              url.GetFileName().c_str());
-    return false;
-  }
-}
-
-bool CEdl::ReadMythCutList(const CStdString& strMovie, const float fFramesPerSecond)
-{
-  /*
-   * Exists() sets up all the internal bits needed for GetCutList().
-   */
-  CMythFile mythFile;
-  CURL url(strMovie);
-  if (!mythFile.Exists(url))
-    return false;
-
-  CLog::Log(LOGDEBUG, "%s - Reading cut list from MythTV for: %s", __FUNCTION__,
-            url.GetFileName().c_str());
-
-  cmyth_commbreaklist_t commbreaklist;
-  if (!mythFile.GetCutList(commbreaklist))
-  {
-    CLog::Log(LOGERROR, "%s - Error getting cut list from MythTV for: %s", __FUNCTION__,
-              url.GetFileName().c_str());
-    return false;
-  }
-
-  bool found = false;
-  for (int i = 0; i < (int)commbreaklist->commbreak_count; i++)
-  {
-    cmyth_commbreak_t commbreak = commbreaklist->commbreak_list[i];
-
-    Cut cut;
-    cut.action = CUT;
-    cut.start = (int64_t)(commbreak->start_mark / fFramesPerSecond * 1000);
-    cut.end = (int64_t)(commbreak->end_mark / fFramesPerSecond * 1000);
-
-    if (!AddCut(cut)) // Log and continue with errors while still testing.
-      CLog::Log(LOGERROR, "%s - Invalid cut [%s - %s] found in MythTV for: %s. Continuing anyway.",
-                __FUNCTION__, MillisecondsToTimeString(cut.start).c_str(),
-                MillisecondsToTimeString(cut.end).c_str(), url.GetFileName().c_str());
-    else
-      found = true;
-  }
-
-  if (found)
-  {
-    CLog::Log(LOGDEBUG, "%s - Added %"PRIuS" cuts from MythTV for: %s. Used detected frame rate of %.3f fps to calculate times from the frame markers.",
-              __FUNCTION__, m_vecCuts.size(), url.GetFileName().c_str(), fFramesPerSecond);
-    return true;
-  }
-  else
-  {
-    CLog::Log(LOGDEBUG, "%s - No cut list found in MythTV for: %s", __FUNCTION__,
-              url.GetFileName().c_str());
-    return false;
-  }
 }
 
 void CEdl::MergeShortCommBreaks()

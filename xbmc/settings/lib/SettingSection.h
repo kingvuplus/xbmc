@@ -65,8 +65,16 @@ public:
    */
   SettingList GetSettings(SettingLevel level) const;
 
+  void AddSetting(CSetting *setting);
+  void AddSettings(const SettingList &settings);
+
+  const ISettingControl *GetControl() const { return m_control; }
+  ISettingControl *GetControl() { return m_control; }
+  void SetControl(ISettingControl *control) { m_control = control; }
+
 private:
   SettingList m_settings;
+  ISettingControl *m_control;
 };
 
 typedef std::vector<CSettingGroup *> SettingGroupList;
@@ -93,30 +101,6 @@ public:
   virtual bool Deserialize(const TiXmlNode *node, bool update = false);
 
   /*!
-   \brief Gets the localizeable label ID of the setting category.
-
-   \return Localizeable label ID of the setting category
-   */
-  const int GetLabel() const { return m_label; }
-  /*!
-   \brief Sets the localizeable label ID of the setting category.
-
-   \param label Localizeable label ID of the setting category
-   */
-  void SetLabel(int label) { m_label = label; }
-  /*!
-   \brief Gets the localizeable help ID of the setting category.
-
-   \return Localizeable help ID of the setting category
-   */
-  const int GetHelp() const { return m_help; }
-  /*!
-   \brief Sets the localizeable help ID of the setting category.
-
-   \param label Localizeable help ID of the setting category
-   */
-  void SetHelp(int help) { m_help = help; }
-  /*!
    \brief Gets the full list of setting groups belonging to the setting
    category.
 
@@ -140,9 +124,10 @@ public:
    */
   bool CanAccess() const;
 
+  void AddGroup(CSettingGroup *group);
+  void AddGroups(const SettingGroupList &groups);
+
 private:
-  int m_label;
-  int m_help;
   SettingGroupList m_groups;
   CSettingCategoryAccess m_accessCondition;
 };
@@ -171,30 +156,6 @@ public:
   virtual bool Deserialize(const TiXmlNode *node, bool update = false);
 
   /*!
-   \brief Gets the localizeable label ID of the setting section.
-
-   \return Localizeable label ID of the setting section
-   */
-  const int GetLabel() const { return m_label; }
-  /*!
-   \brief Sets the localizeable label ID of the setting section.
-
-   \param label Localizeable label ID of the setting section
-   */
-  void SetLabel(int label) { m_label = label; }
-  /*!
-   \brief Gets the localizeable help ID of the setting section.
-
-   \return Localizeable help ID of the setting section
-   */
-  const int GetHelp() const { return m_help; }
-  /*!
-   \brief Sets the localizeable help ID of the setting section.
-
-   \param label Localizeable help ID of the setting section
-   */
-  void SetHelp(int help) { m_help = help; }
-  /*!
    \brief Gets the full list of setting categories belonging to the setting
    section.
 
@@ -211,8 +172,9 @@ public:
    */
   SettingCategoryList GetCategories(SettingLevel level) const;
 
+  void AddCategory(CSettingCategory *category);
+  void AddCategories(const SettingCategoryList &categories);
+
 private:
-  int m_label;
-  int m_help;
   SettingCategoryList m_categories;
 };

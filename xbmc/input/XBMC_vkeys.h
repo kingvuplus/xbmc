@@ -190,6 +190,7 @@ typedef enum {
   XBMCVK_LAUNCH_MEDIA_CENTER = 0xC3,
   XBMCVK_MEDIA_REWIND        = 0xC4,
   XBMCVK_MEDIA_FASTFORWARD   = 0xC5,
+  XBMCVK_MEDIA_RECORD        = 0xC6,
 
   XBMCVK_LCONTROL       = 0xD0,
   XBMCVK_RCONTROL       = 0xD1,
@@ -208,6 +209,13 @@ typedef enum {
   XBMCVK_PAUSE          = 0XDD,
   XBMCVK_POWER          = 0XDE,
   XBMCVK_SLEEP          = 0XDF,
+  XBMCVK_GUIDE          = 0xE0,
+  XBMCVK_SETTINGS       = 0xE1,
+  XBMCVK_INFO           = 0xE2,
+  XBMCVK_RED            = 0xE3,
+  XBMCVK_GREEN          = 0xE4,
+  XBMCVK_YELLOW         = 0xE5,
+  XBMCVK_BLUE           = 0xE6,
 
   XBMCVK_LAST           = 0xFF
 } XBMCVKey;

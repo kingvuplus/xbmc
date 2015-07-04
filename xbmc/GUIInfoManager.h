@@ -26,12 +26,12 @@
  *
  */
 
-#include "Temperature.h"
 #include "threads/CriticalSection.h"
 #include "guilib/IMsgTargetCallback.h"
 #include "inttypes.h"
 #include "XBDateTime.h"
 #include "utils/Observer.h"
+#include "utils/Temperature.h"
 #include "interfaces/info/InfoBool.h"
 #include "interfaces/info/SkinVariable.h"
 #include "cores/IPlayer.h"
@@ -111,6 +111,7 @@ namespace INFO
 #define PLAYER_TITLE                 53
 #define PLAYER_ISINTERNETSTREAM      54
 #define PLAYER_FILENAME              55
+#define PLAYER_SEEKSTEPSIZE          56
 
 #define WEATHER_CONDITIONS          100
 #define WEATHER_TEMPERATURE         101
@@ -174,6 +175,7 @@ namespace INFO
 #define SYSTEM_HAS_PVR              186
 #define SYSTEM_STARTUP_WINDOW       187
 #define SYSTEM_STEREOSCOPIC_MODE    188
+#define SYSTEM_BUILD_VERSION_SHORT  189
 
 #define NETWORK_IP_ADDRESS          190
 #define NETWORK_MAC_ADDRESS         191
@@ -214,6 +216,9 @@ namespace INFO
 #define MUSICPLAYER_CHANNEL_NAME    229
 #define MUSICPLAYER_CHANNEL_NUMBER  230
 #define MUSICPLAYER_CHANNEL_GROUP   231
+#define MUSICPLAYER_SUB_CHANNEL_NUMBER 232
+#define MUSICPLAYER_CHANNEL_NUMBER_LBL 233
+#define MUSICPLAYER_CONTENT         234
 
 #define VIDEOPLAYER_TITLE             250
 #define VIDEOPLAYER_GENRE             251
@@ -278,6 +283,11 @@ namespace INFO
 #define VIDEOPLAYER_STEREOSCOPIC_MODE 311
 #define VIDEOPLAYER_SUBTITLES_LANG    312
 #define VIDEOPLAYER_AUDIO_LANG        313
+#define VIDEOPLAYER_SUB_CHANNEL_NUMBER 314
+#define VIDEOPLAYER_CHANNEL_NUMBER_LBL 315
+#define VIDEOPLAYER_CAN_RESUME_LIVE_TV 316
+#define VIDEOPLAYER_IMDBNUMBER        317
+#define VIDEOPLAYER_EPISODENAME       318
 
 #define CONTAINER_CAN_FILTER         342
 #define CONTAINER_CAN_FILTERADVANCED 343
@@ -288,7 +298,7 @@ namespace INFO
 #define CONTAINER_STATIC            347
 #define CONTAINER_MOVE_NEXT         348
 #define CONTAINER_SCROLL_NEXT       349
-
+#define CONTAINER_ISUPDATING        350
 #define CONTAINER_HASFILES          351
 #define CONTAINER_HASFOLDERS        352
 #define CONTAINER_STACKED           353
@@ -298,26 +308,24 @@ namespace INFO
 #define CONTAINER_PROPERTY          357
 #define CONTAINER_SORT_DIRECTION    358
 #define CONTAINER_NUM_ITEMS         359
-#define CONTAINER_FOLDERTHUMB       360
-#define CONTAINER_FOLDERPATH        361
-#define CONTAINER_CONTENT           362
-#define CONTAINER_HAS_THUMB         363
-#define CONTAINER_SORT_METHOD       364
-
-#define CONTAINER_HAS_FOCUS         367
-#define CONTAINER_ROW               368
-#define CONTAINER_COLUMN            369
-#define CONTAINER_POSITION          370
-#define CONTAINER_VIEWMODE          371
-#define CONTAINER_HAS_NEXT          372
-#define CONTAINER_HAS_PREVIOUS      373
-#define CONTAINER_SUBITEM           374
-#define CONTAINER_TVSHOWTHUMB       375
-#define CONTAINER_NUM_PAGES         376
-#define CONTAINER_CURRENT_PAGE      377
-#define CONTAINER_SEASONTHUMB       378
-#define CONTAINER_SHOWPLOT          379
-#define CONTAINER_TOTALTIME         380
+#define CONTAINER_FOLDERPATH        360
+#define CONTAINER_CONTENT           361
+#define CONTAINER_HAS_THUMB         362
+#define CONTAINER_SORT_METHOD       363
+#define CONTAINER_CURRENT_ITEM      364
+#define CONTAINER_ART               365
+#define CONTAINER_HAS_FOCUS         366
+#define CONTAINER_ROW               367
+#define CONTAINER_COLUMN            368
+#define CONTAINER_POSITION          369
+#define CONTAINER_VIEWMODE          370
+#define CONTAINER_HAS_NEXT          371
+#define CONTAINER_HAS_PREVIOUS      372
+#define CONTAINER_SUBITEM           373
+#define CONTAINER_NUM_PAGES         374
+#define CONTAINER_CURRENT_PAGE      375
+#define CONTAINER_SHOWPLOT          376
+#define CONTAINER_TOTALTIME         377
 
 #define MUSICPM_ENABLED             381
 #define MUSICPM_SONGSPLAYED         382
@@ -367,7 +375,7 @@ namespace INFO
 #define SYSTEM_CPUFREQUENCY         656
 #define SYSTEM_SCREEN_RESOLUTION    659
 #define SYSTEM_VIDEO_ENCODER_INFO   660
-#define SYSTEM_KERNEL_VERSION       667
+#define SYSTEM_OS_VERSION_INFO      667
 #define SYSTEM_FREE_SPACE           679
 #define SYSTEM_USED_SPACE           680
 #define SYSTEM_TOTAL_SPACE          681
@@ -389,6 +397,7 @@ namespace INFO
 #define SYSTEM_FRIENDLY_NAME        716
 #define SYSTEM_SCREENSAVER_ACTIVE   717
 #define SYSTEM_ADDON_VERSION        718
+#define SYSTEM_DPMS_ACTIVE          719
 
 #define LIBRARY_HAS_MUSIC           720
 #define LIBRARY_HAS_VIDEO           721
@@ -396,9 +405,11 @@ namespace INFO
 #define LIBRARY_HAS_MOVIE_SETS      723
 #define LIBRARY_HAS_TVSHOWS         724
 #define LIBRARY_HAS_MUSICVIDEOS     725
-#define LIBRARY_IS_SCANNING         726
-#define LIBRARY_IS_SCANNING_VIDEO   727
-#define LIBRARY_IS_SCANNING_MUSIC   728
+#define LIBRARY_HAS_SINGLES         726
+#define LIBRARY_HAS_COMPILATIONS    727
+#define LIBRARY_IS_SCANNING         728
+#define LIBRARY_IS_SCANNING_VIDEO   729
+#define LIBRARY_IS_SCANNING_MUSIC   730
 
 #define SYSTEM_PLATFORM_LINUX       741
 #define SYSTEM_PLATFORM_WINDOWS     742
@@ -440,7 +451,9 @@ namespace INFO
 #define PVR_IS_PLAYING_RADIO        (PVR_CONDITIONS_START + 7)
 #define PVR_IS_PLAYING_RECORDING    (PVR_CONDITIONS_START + 8)
 #define PVR_ACTUAL_STREAM_ENCRYPTED (PVR_CONDITIONS_START + 9)
-#define PVR_CONDITIONS_END          PVR_ACTUAL_STREAM_ENCRYPTED
+#define PVR_HAS_TV_CHANNELS         (PVR_CONDITIONS_START + 10)
+#define PVR_HAS_RADIO_CHANNELS      (PVR_CONDITIONS_START + 11)
+#define PVR_CONDITIONS_END          PVR_HAS_RADIO_CHANNELS
 
 #define PVR_STRINGS_START           1200
 #define PVR_NEXT_RECORDING_CHANNEL  (PVR_STRINGS_START)
@@ -458,28 +471,30 @@ namespace INFO
 #define PVR_BACKEND_CHANNELS        (PVR_STRINGS_START + 12)
 #define PVR_BACKEND_TIMERS          (PVR_STRINGS_START + 13)
 #define PVR_BACKEND_RECORDINGS      (PVR_STRINGS_START + 14)
-#define PVR_BACKEND_NUMBER          (PVR_STRINGS_START + 15)
-#define PVR_TOTAL_DISKSPACE         (PVR_STRINGS_START + 16)
-#define PVR_NEXT_TIMER              (PVR_STRINGS_START + 17)
-#define PVR_PLAYING_DURATION        (PVR_STRINGS_START + 18)
-#define PVR_PLAYING_TIME            (PVR_STRINGS_START + 19)
-#define PVR_PLAYING_PROGRESS        (PVR_STRINGS_START + 20)
-#define PVR_ACTUAL_STREAM_CLIENT    (PVR_STRINGS_START + 21)
-#define PVR_ACTUAL_STREAM_DEVICE    (PVR_STRINGS_START + 22)
-#define PVR_ACTUAL_STREAM_STATUS    (PVR_STRINGS_START + 23)
-#define PVR_ACTUAL_STREAM_SIG       (PVR_STRINGS_START + 24)
-#define PVR_ACTUAL_STREAM_SNR       (PVR_STRINGS_START + 25)
-#define PVR_ACTUAL_STREAM_SIG_PROGR (PVR_STRINGS_START + 26)
-#define PVR_ACTUAL_STREAM_SNR_PROGR (PVR_STRINGS_START + 27)
-#define PVR_ACTUAL_STREAM_BER       (PVR_STRINGS_START + 28)
-#define PVR_ACTUAL_STREAM_UNC       (PVR_STRINGS_START + 29)
-#define PVR_ACTUAL_STREAM_VIDEO_BR  (PVR_STRINGS_START + 30)
-#define PVR_ACTUAL_STREAM_AUDIO_BR  (PVR_STRINGS_START + 31)
-#define PVR_ACTUAL_STREAM_DOLBY_BR  (PVR_STRINGS_START + 32)
-#define PVR_ACTUAL_STREAM_CRYPTION  (PVR_STRINGS_START + 33)
-#define PVR_ACTUAL_STREAM_SERVICE   (PVR_STRINGS_START + 34)
-#define PVR_ACTUAL_STREAM_MUX       (PVR_STRINGS_START + 35)
-#define PVR_ACTUAL_STREAM_PROVIDER  (PVR_STRINGS_START + 36)
+#define PVR_BACKEND_DELETED_RECORDINGS (PVR_STRINGS_START + 15)
+#define PVR_BACKEND_NUMBER          (PVR_STRINGS_START + 16)
+#define PVR_TOTAL_DISKSPACE         (PVR_STRINGS_START + 17)
+#define PVR_NEXT_TIMER              (PVR_STRINGS_START + 18)
+#define PVR_PLAYING_DURATION        (PVR_STRINGS_START + 19)
+#define PVR_PLAYING_TIME            (PVR_STRINGS_START + 20)
+#define PVR_PLAYING_PROGRESS        (PVR_STRINGS_START + 21)
+#define PVR_ACTUAL_STREAM_CLIENT    (PVR_STRINGS_START + 22)
+#define PVR_ACTUAL_STREAM_DEVICE    (PVR_STRINGS_START + 23)
+#define PVR_ACTUAL_STREAM_STATUS    (PVR_STRINGS_START + 24)
+#define PVR_ACTUAL_STREAM_SIG       (PVR_STRINGS_START + 25)
+#define PVR_ACTUAL_STREAM_SNR       (PVR_STRINGS_START + 26)
+#define PVR_ACTUAL_STREAM_SIG_PROGR (PVR_STRINGS_START + 27)
+#define PVR_ACTUAL_STREAM_SNR_PROGR (PVR_STRINGS_START + 28)
+#define PVR_ACTUAL_STREAM_BER       (PVR_STRINGS_START + 29)
+#define PVR_ACTUAL_STREAM_UNC       (PVR_STRINGS_START + 30)
+#define PVR_ACTUAL_STREAM_VIDEO_BR  (PVR_STRINGS_START + 31)
+#define PVR_ACTUAL_STREAM_AUDIO_BR  (PVR_STRINGS_START + 32)
+#define PVR_ACTUAL_STREAM_DOLBY_BR  (PVR_STRINGS_START + 33)
+#define PVR_ACTUAL_STREAM_CRYPTION  (PVR_STRINGS_START + 34)
+#define PVR_ACTUAL_STREAM_SERVICE   (PVR_STRINGS_START + 35)
+#define PVR_ACTUAL_STREAM_MUX       (PVR_STRINGS_START + 36)
+#define PVR_ACTUAL_STREAM_PROVIDER  (PVR_STRINGS_START + 37)
+#define PVR_BACKEND_DISKSPACE_PROGR (PVR_STRINGS_START + 38)
 #define PVR_STRINGS_END             PVR_ACTUAL_STREAM_PROVIDER
 
 #define WINDOW_PROPERTY             9993
@@ -495,10 +510,6 @@ namespace INFO
 #define CONTROL_IS_VISIBLE          29998
 #define CONTROL_GROUP_HAS_FOCUS     29999
 #define CONTROL_HAS_FOCUS           30000
-
-#define VERSION_MAJOR               13
-#define VERSION_MINOR               2
-#define VERSION_TAG                 ""
 
 #define LISTITEM_START              35000
 #define LISTITEM_THUMB              (LISTITEM_START)
@@ -647,6 +658,15 @@ namespace INFO
 #define LISTITEM_VOTES              (LISTITEM_START + 139)
 #define LISTITEM_STEREOSCOPIC_MODE  (LISTITEM_START + 140)
 #define LISTITEM_IS_STEREOSCOPIC    (LISTITEM_START + 141)
+#define LISTITEM_INPROGRESS         (LISTITEM_START + 142)
+#define LISTITEM_HASRECORDING       (LISTITEM_START + 143)
+#define LISTITEM_SUB_CHANNEL_NUMBER (LISTITEM_START + 144)
+#define LISTITEM_CHANNEL_NUMBER_LBL (LISTITEM_START + 145)
+#define LISTITEM_IMDBNUMBER         (LISTITEM_START + 146)
+#define LISTITEM_EPISODENAME        (LISTITEM_START + 147)
+#define LISTITEM_IS_COLLECTION      (LISTITEM_START + 148)
+#define LISTITEM_HASTIMERSCHEDULE   (LISTITEM_START + 149)
+#define LISTITEM_TIMERTYPE          (LISTITEM_START + 150)
 
 #define LISTITEM_PROPERTY_START     (LISTITEM_START + 200)
 #define LISTITEM_PROPERTY_END       (LISTITEM_PROPERTY_START + 1000)
@@ -664,9 +684,12 @@ namespace INFO
 #define COMBINED_VALUES_START        100000
 
 // forward
-class CInfoLabel;
 class CGUIWindow;
-namespace EPG { class CEpgInfoTag; }
+namespace EPG
+{
+  class CEpgInfoTag;
+  typedef std::shared_ptr<EPG::CEpgInfoTag> CEpgInfoTagPtr;
+}
 
 // Info Flags
 // Stored in the top 8 bits of GUIInfo::m_data1
@@ -724,7 +747,7 @@ public:
    \param context the context window
    \return an identifier used to reference this expression
    */
-  INFO::InfoPtr Register(const CStdString &expression, int context = 0);
+  INFO::InfoPtr Register(const std::string &expression, int context = 0);
 
   /*! \brief Evaluate a boolean expression
    \param expression the expression to evaluate
@@ -732,9 +755,9 @@ public:
    \return the value of the evaluated expression.
    \sa Register
    */
-  bool EvaluateBool(const CStdString &expression, int context = 0);
+  bool EvaluateBool(const std::string &expression, int context = 0);
 
-  int TranslateString(const CStdString &strCondition);
+  int TranslateString(const std::string &strCondition);
 
   /*! \brief Get integer value of info.
    \param value int reference to pass value of given info
@@ -745,20 +768,20 @@ public:
    \sa GetItemInt, GetMultiInfoInt
    */
   bool GetInt(int &value, int info, int contextWindow = 0, const CGUIListItem *item = NULL) const;
-  CStdString GetLabel(int info, int contextWindow = 0, CStdString *fallback = NULL);
+  std::string GetLabel(int info, int contextWindow = 0, std::string *fallback = NULL);
 
-  CStdString GetImage(int info, int contextWindow, CStdString *fallback = NULL);
+  std::string GetImage(int info, int contextWindow, std::string *fallback = NULL);
 
-  CStdString GetTime(TIME_FORMAT format = TIME_FORMAT_GUESS) const;
-  CStdString GetDate(bool bNumbersOnly = false);
-  CStdString GetDuration(TIME_FORMAT format = TIME_FORMAT_GUESS) const;
+  std::string GetTime(TIME_FORMAT format = TIME_FORMAT_GUESS) const;
+  std::string GetDate(bool bNumbersOnly = false);
+  std::string GetDuration(TIME_FORMAT format = TIME_FORMAT_GUESS) const;
 
   void SetCurrentItem(CFileItem &item);
   void ResetCurrentItem();
   // Current song stuff
   /// \brief Retrieves tag info (if necessary) and fills in our current song path.
   void SetCurrentSong(CFileItem &item);
-  void SetCurrentAlbumThumb(const CStdString &thumbFileName);
+  void SetCurrentAlbumThumb(const std::string &thumbFileName);
   void SetCurrentMovie(CFileItem &item);
   void SetCurrentSlide(CFileItem &item);
   const CFileItem &GetCurrentSlide() const;
@@ -769,32 +792,33 @@ public:
   const MUSIC_INFO::CMusicInfoTag *GetCurrentSongTag() const;
   const CVideoInfoTag* GetCurrentMovieTag() const;
 
-  CStdString GetMusicLabel(int item);
-  CStdString GetMusicTagLabel(int info, const CFileItem *item);
-  CStdString GetVideoLabel(int item);
-  CStdString GetPlaylistLabel(int item, int playlistid = -1 /* PLAYLIST_NONE */) const;
-  CStdString GetMusicPartyModeLabel(int item);
-  const CStdString GetMusicPlaylistInfo(const GUIInfo& info);
-  CStdString GetPictureLabel(int item);
+  std::string GetMusicLabel(int item);
+  std::string GetMusicTagLabel(int info, const CFileItem *item);
+  std::string GetVideoLabel(int item);
+  std::string GetPlaylistLabel(int item, int playlistid = -1 /* PLAYLIST_NONE */) const;
+  std::string GetMusicPartyModeLabel(int item);
+  const std::string GetMusicPlaylistInfo(const GUIInfo& info);
+  std::string GetPictureLabel(int item);
 
   int64_t GetPlayTime() const;  // in ms
-  CStdString GetCurrentPlayTime(TIME_FORMAT format = TIME_FORMAT_GUESS) const;
-  CStdString GetCurrentSeekTime(TIME_FORMAT format = TIME_FORMAT_GUESS) const;
+  std::string GetCurrentPlayTime(TIME_FORMAT format = TIME_FORMAT_GUESS) const;
+  std::string GetCurrentSeekTime(TIME_FORMAT format = TIME_FORMAT_GUESS) const;
   int GetPlayTimeRemaining() const;
   int GetTotalPlayTime() const;
-  CStdString GetCurrentPlayTimeRemaining(TIME_FORMAT format) const;
-  CStdString GetVersion();
-  CStdString GetBuild();
+  float GetSeekPercent() const;
+  std::string GetCurrentPlayTimeRemaining(TIME_FORMAT format) const;
+  std::string GetVersionShort(void);
+  std::string GetAppName();
+  std::string GetVersion();
+  std::string GetBuild();
 
   bool GetDisplayAfterSeek();
   void SetDisplayAfterSeek(unsigned int timeOut = 2500, int seekOffset = 0);
-  void SetSeeking(bool seeking) { m_playerSeeking = seeking; };
   void SetShowTime(bool showtime) { m_playerShowTime = showtime; };
   void SetShowCodec(bool showcodec) { m_playerShowCodec = showcodec; };
   void SetShowInfo(bool showinfo) { m_playerShowInfo = showinfo; };
   void ToggleShowCodec() { m_playerShowCodec = !m_playerShowCodec; };
   bool ToggleShowInfo() { m_playerShowInfo = !m_playerShowInfo; return m_playerShowInfo; };
-  bool m_performingSeek;
 
   std::string GetSystemHeatInfo(int info);
   CTemperature GetGPUTemperature();
@@ -808,11 +832,8 @@ public:
 
   void ResetCache();
   bool GetItemInt(int &value, const CGUIListItem *item, int info) const;
-  CStdString GetItemLabel(const CFileItem *item, int info, CStdString *fallback = NULL);
-  CStdString GetItemImage(const CFileItem *item, int info, CStdString *fallback = NULL);
-
-  // Called from tuxbox service thread to update current status
-  void UpdateFromTuxBox();
+  std::string GetItemLabel(const CFileItem *item, int info, std::string *fallback = NULL);
+  std::string GetItemImage(const CFileItem *item, int info, std::string *fallback = NULL);
 
   /*! \brief containers call here to specify that the focus is changing
    \param id control id
@@ -828,23 +849,21 @@ public:
   void SetLibraryBool(int condition, bool value);
   bool GetLibraryBool(int condition);
   void ResetLibraryBools();
-  CStdString LocalizeTime(const CDateTime &time, TIME_FORMAT format) const;
+  std::string LocalizeTime(const CDateTime &time, TIME_FORMAT format) const;
 
-  int TranslateSingleString(const CStdString &strCondition);
+  int TranslateSingleString(const std::string &strCondition);
 
   int RegisterSkinVariableString(const INFO::CSkinVariableString* info);
-  int TranslateSkinVariableString(const CStdString& name, int context);
-  CStdString GetSkinVariableString(int info, bool preferImage = false, const CGUIListItem *item=NULL);
+  int TranslateSkinVariableString(const std::string& name, int context);
+  std::string GetSkinVariableString(int info, bool preferImage = false, const CGUIListItem *item=NULL);
 
   /// \brief iterates through boolean conditions and compares their stored values to current values. Returns true if any condition changed value.
   bool ConditionsChangedValues(const std::map<INFO::InfoPtr, bool>& map);
 
-  bool m_AVInfoValid;
-
 protected:
   friend class INFO::InfoSingle;
   bool GetBool(int condition, int contextWindow = 0, const CGUIListItem *item=NULL);
-  int TranslateSingleString(const CStdString &strCondition, bool &listItemDependent);
+  int TranslateSingleString(const std::string &strCondition, bool &listItemDependent);
 
   // routines for window retrieval
   bool CheckWindowCondition(CGUIWindow *window, int condition) const;
@@ -855,22 +874,22 @@ protected:
   class Property
   {
   public:
-    Property(const CStdString &property, const CStdString &parameters);
+    Property(const std::string &property, const std::string &parameters);
 
-    const CStdString &param(unsigned int n = 0) const;
+    const std::string &param(unsigned int n = 0) const;
     unsigned int num_params() const;
 
-    CStdString name;
+    std::string name;
   private:
-    std::vector<CStdString> params;
+    std::vector<std::string> params;
   };
 
   bool GetMultiInfoBool(const GUIInfo &info, int contextWindow = 0, const CGUIListItem *item = NULL);
   bool GetMultiInfoInt(int &value, const GUIInfo &info, int contextWindow = 0) const;
-  CStdString GetMultiInfoLabel(const GUIInfo &info, int contextWindow = 0, CStdString *fallback = NULL);
+  std::string GetMultiInfoLabel(const GUIInfo &info, int contextWindow = 0, std::string *fallback = NULL);
   int TranslateListItem(const Property &info);
-  int TranslateMusicPlayerString(const CStdString &info) const;
-  TIME_FORMAT TranslateTimeFormat(const CStdString &format);
+  int TranslateMusicPlayerString(const std::string &info) const;
+  TIME_FORMAT TranslateTimeFormat(const std::string &format);
   bool GetItemBool(const CGUIListItem *item, int condition) const;
 
   /*! \brief Split an info string into it's constituent parts and parameters
@@ -883,33 +902,32 @@ protected:
    \param infoString the original string
    \param info the resulting pairs of info and parameters.
    */
-  void SplitInfoString(const CStdString &infoString, std::vector<Property> &info);
+  void SplitInfoString(const std::string &infoString, std::vector<Property> &info);
 
   // Conditional string parameters for testing are stored in a vector for later retrieval.
   // The offset into the string parameters array is returned.
-  int ConditionalStringParameter(const CStdString &strParameter, bool caseSensitive = false);
+  int ConditionalStringParameter(const std::string &strParameter, bool caseSensitive = false);
   int AddMultiInfo(const GUIInfo &info);
-  int AddListItemProp(const CStdString &str, int offset=0);
+  int AddListItemProp(const std::string &str, int offset=0);
 
   /*!
    * @brief Get the EPG tag that is currently active
-   * @param tag The active tag
-   * @return True if an EPG tag is active and 'tag' was updated, false otherwise
+   * @return the currently active tag or NULL if no active tag was found
    */
-  bool GetEpgInfoTag(EPG::CEpgInfoTag& tag) const;
+  EPG::CEpgInfoTagPtr GetEpgInfoTag() const;
 
   // Conditional string parameters are stored here
-  CStdStringArray m_stringParameters;
+  std::vector<std::string> m_stringParameters;
 
   // Array of multiple information mapped to a single integer lookup
   std::vector<GUIInfo> m_multiInfo;
   std::vector<std::string> m_listitemProperties;
 
-  CStdString m_currentMovieDuration;
+  std::string m_currentMovieDuration;
 
   // Current playing stuff
   CFileItem* m_currentFile;
-  CStdString m_currentMovieThumb;
+  std::string m_currentMovieThumb;
   CFileItem* m_currentSlide;
 
   // fan stuff
@@ -921,7 +939,6 @@ protected:
   //Fullscreen OSD Stuff
   unsigned int m_AfterSeekTimeout;
   int m_seekOffset;
-  bool m_playerSeeking;
   bool m_playerShowTime;
   bool m_playerShowCodec;
   bool m_playerShowInfo;
@@ -943,6 +960,8 @@ protected:
   int m_libraryHasTVShows;
   int m_libraryHasMusicVideos;
   int m_libraryHasMovieSets;
+  int m_libraryHasSingles;
+  int m_libraryHasCompilations;
 
   SPlayerVideoStreamInfo m_videoInfo;
   SPlayerAudioStreamInfo m_audioInfo;

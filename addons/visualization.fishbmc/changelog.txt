@@ -1,19 +1,31 @@
-2014-08-13:
+2015-06-27:
         Updated language files from Transifex
 
-2014-07-15:
+2015-06-01:
         Updated language files from Transifex
 
-2014-06-25:
+2015-05-16:
         Updated language files from Transifex
 
-2014-06-05:
+2014-12-10:
         Updated language files from Transifex
 
-2014-05-27:
+2014-12-02:
         Updated language files from Transifex
 
-2014-05-19:
+2014-11-16:
+        Updated language files from Transifex
+
+2014-11-11:
+        Updated language files from Transifex
+
+2014-11-10:
+        Updated language files from Transifex
+
+2014-09-27:
+        Updated language files from Transifex
+
+2014-09-11:
         Updated language files from Transifex
 
 2014-04-18:

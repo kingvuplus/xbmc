@@ -8,18 +8,10 @@
     <player name="DVDPlayer" /> placeholder for MPlayer
     <player name="PAPlayer" audio="true" />
     -->
-    <player name="E2Player" type="ExternalPlayer" audio="false" video="true">
-      <filename>xbmc.helper</filename>
-      <args>--url="{1}" --owner="$PPID"</args>
-      <hidexbmc>true</hidexbmc>
-      <hideconsole>true</hideconsole>
-      <warpcursor>none</warpcursor>
-    </player>
   </players>
 
   <rules name="system rules">
-    <rule name="rtv" protocols="rtv" player="DVDPlayer" />
-    <rule name="hdhomerun/myth/mms/udp" protocols="hdhomerun|myth|cmyth|mms|mmsh|udp" player="DVDPlayer" />
+    <rule name="hdhomerun/mms/udp" protocols="hdhomerun|mms|mmsh|udp" player="DVDPlayer" />
     <rule name="lastfm/shout" protocols="lastfm|shout" player="PAPlayer" />
     <rule name="rtmp" protocols="rtmp" player="videodefaultplayer" />
 
@@ -44,6 +36,5 @@
 
     <!-- pvr radio channels should be played by dvdplayer because they need buffering -->
     <rule name="radio" filetypes="pvr" filename=".*/radio/.*" player="DVDPlayer" />
-    <rule name="dgb" filetypes="*" player="E2Player"/>
   </rules>
 </playercorefactory>

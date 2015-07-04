@@ -21,12 +21,13 @@
 
 #include "system_gl.h"
 
-#include "DllAvCodec.h"
 #include "DVDVideoCodecFFmpeg.h"
 
-struct vda_context;
+struct AVVDAContext;
+class CBitstreamConverter;
 
-namespace VDA {
+namespace VDA
+{
 
 class CDecoder
   : public CDVDVideoCodecFFmpeg::IHardwareDecoder
@@ -34,21 +35,19 @@ class CDecoder
 public:
   CDecoder();
  ~CDecoder();
-  virtual bool Open      (AVCodecContext* avctx, const enum PixelFormat, unsigned int surfaces = 0);
-  virtual int  Decode    (AVCodecContext* avctx, AVFrame* frame);
+  virtual bool Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum PixelFormat, unsigned int surfaces = 0);
+  virtual int Decode(AVCodecContext* avctx, AVFrame* frame);
   virtual bool GetPicture(AVCodecContext* avctx, AVFrame* frame, DVDVideoPicture* picture);
-  virtual int  Check     (AVCodecContext* avctx);
+  virtual int Check(AVCodecContext* avctx);
   virtual void Close();
   virtual const std::string Name() { return "vda"; }
-  virtual CCriticalSection* Section() {  return NULL; }
   virtual unsigned GetAllowedReferences();
 
-  int   GetBuffer(AVCodecContext *avctx, AVFrame *pic);
-  void  RelBuffer(AVCodecContext *avctx, AVFrame *pic);
 protected:
-  bool                   Create(AVCodecContext* avctx);
-  unsigned               m_renderbuffers_count;
-  vda_context*           m_ctx;
+  bool Create(AVCodecContext* avctx);
+  unsigned m_renderbuffers_count;
+  struct AVVDAContext* m_ctx;
+  CBitstreamConverter *m_bitstream;
 };
 
 }

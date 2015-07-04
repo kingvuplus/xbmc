@@ -22,66 +22,29 @@
 #include "osx/CocoaInterface.h"
 #include "DVDVideoCodec.h"
 #include "DVDCodecs/DVDCodecUtils.h"
+#include "utils/log.h"
 #include "VDA.h"
+#include "utils/BitstreamConverter.h"
 
 extern "C" {
-  #include <libavcodec/vda.h>
+  #include "libavcodec/vda.h"
 }
 
 using namespace std;
 using namespace VDA;
 
 
-static void RelBufferS(AVCodecContext *avctx, AVFrame *pic)
-{ ((CDecoder*)((CDVDVideoCodecFFmpeg*)avctx->opaque)->GetHardware())->RelBuffer(avctx, pic); }
-
-static int GetBufferS(AVCodecContext *avctx, AVFrame *pic) 
-{  return ((CDecoder*)((CDVDVideoCodecFFmpeg*)avctx->opaque)->GetHardware())->GetBuffer(avctx, pic); }
-
 CDecoder::CDecoder()
-: m_renderbuffers_count(0)
+: m_renderbuffers_count(3)
 {
-  m_ctx = (vda_context*)calloc(1, sizeof(vda_context));
+  m_ctx = av_vda_alloc_context();
+  m_bitstream = NULL;
 }
 
 CDecoder::~CDecoder()
 {
   Close();
-  free(m_ctx);
-}
-
-void CDecoder::RelBuffer(AVCodecContext *avctx, AVFrame *pic)
-{
-  CVPixelBufferRef cv_buffer = (CVPixelBufferRef)pic->data[3];
-  CVPixelBufferRelease(cv_buffer);
-
-  for (int i = 0; i < 4; i++)
-    pic->data[i] = NULL;
-}
-
-int CDecoder::GetBuffer(AVCodecContext *avctx, AVFrame *pic)
-{
-  pic->type = FF_BUFFER_TYPE_USER;
-  pic->data[0] = (uint8_t *)1;
-  pic->reordered_opaque = avctx->reordered_opaque;
-  return 0;
-}
-
-static void vda_decoder_callback (void *vda_hw_ctx,
-                                  CFDictionaryRef user_info,
-                                  OSStatus status,
-                                  uint32_t infoFlags,
-                                  CVImageBufferRef image_buffer)
-{
-  struct vda_context *vda_ctx = (struct vda_context *)vda_hw_ctx;
-
-  if (!image_buffer)
-    return;
-
-  if (vda_ctx->cv_pix_fmt_type != CVPixelBufferGetPixelFormatType(image_buffer))
-    return;
-
-  vda_ctx->cv_buffer = CVPixelBufferRetain(image_buffer);
+  av_free(m_ctx);
 }
 
 bool CDecoder::Create(AVCodecContext *avctx)
@@ -90,77 +53,112 @@ bool CDecoder::Create(AVCodecContext *avctx)
   CFNumberRef height;
   CFNumberRef width;
   CFNumberRef format;
-  CFDataRef avc_data;
   CFMutableDictionaryRef config_info;
   CFMutableDictionaryRef buffer_attributes;
-  CFMutableDictionaryRef io_surface_properties;
+  CFDictionaryRef io_surface_properties;
   CFNumberRef cv_pix_fmt;
+  CFDataRef avcCData;
+  int32_t fmt = 'avc1';
+  int32_t pix_fmt = kCVPixelFormatType_422YpCbCr8;
 
-  m_ctx->priv_bitstream = NULL;
-  m_ctx->priv_allocated_size = 0;
+  switch (avctx->codec_id)
+  {
+    case AV_CODEC_ID_H264:
+      m_bitstream = new CBitstreamConverter;
+      if (!m_bitstream->Open(avctx->codec_id, (uint8_t*)avctx->extradata, avctx->extradata_size, false))
+      {
+        return false;
+      }
+      break;
 
-  /* Each VCL NAL in the bitstream sent to the decoder
-   * is preceded by a 4 bytes length header.
-   * Change the avcC atom header if needed, to signal headers of 4 bytes. */
-  if (avctx->extradata_size >= 4 && (avctx->extradata[4] & 0x03) != 0x03) {
-    uint8_t *rw_extradata;
-
-    if (!(rw_extradata = (uint8_t*)av_malloc(avctx->extradata_size)))
+    default:
       return false;
-
-    memcpy(rw_extradata, avctx->extradata, avctx->extradata_size);
-
-    rw_extradata[4] |= 0x03;
-
-    avc_data = CFDataCreate(kCFAllocatorDefault, rw_extradata, avctx->extradata_size);
-
-    av_freep(&rw_extradata);
-  } else {
-    avc_data = CFDataCreate(kCFAllocatorDefault, avctx->extradata, avctx->extradata_size);
+      break;
   }
+
+  avcCData = CFDataCreate(kCFAllocatorDefault,
+                          (const uint8_t*)m_bitstream->GetExtraData(), m_bitstream->GetExtraSize());
+
+  // check the avcC atom's sps for number of reference frames and
+  // bail if interlaced, VDA does not handle interlaced h264.
+  uint32_t avcc_len = CFDataGetLength(avcCData);
+  if (avcc_len < 8)
+  {
+    // avcc atoms with length less than 8 are borked.
+    CFRelease(avcCData);
+    return false;
+  }
+  else
+  {
+    bool interlaced = true;
+    int max_ref_frames;
+    uint8_t *spc = (uint8_t*)CFDataGetBytePtr(avcCData) + 6;
+    uint32_t sps_size = BS_RB16(spc);
+    if (sps_size)
+      m_bitstream->parseh264_sps(spc+3, sps_size-1, &interlaced, &max_ref_frames);
+    if (interlaced)
+    {
+      CLog::Log(LOGNOTICE, "%s - possible interlaced content.", __FUNCTION__);
+      CFRelease(avcCData);
+      return false;
+    }
+
+    if (((uint8_t*)avctx->extradata)[4] == 0xFE)
+    {
+      // video content is from so silly encoder that think 3 byte NAL sizes are valid
+      CLog::Log(LOGNOTICE, "%s - 3 byte nal length not supported", __FUNCTION__);
+      CFRelease(avcCData);
+      return false;
+    }
+  }
+
 
   config_info = CFDictionaryCreateMutable(kCFAllocatorDefault,
                                           4,
                                           &kCFTypeDictionaryKeyCallBacks,
                                           &kCFTypeDictionaryValueCallBacks);
 
-  height   = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &m_ctx->height);
-  width    = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &m_ctx->width);
-  format   = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &m_ctx->format);
+  height = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &avctx->height);
+  width = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &avctx->width);
+  format = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &fmt);
 
-  CFDictionarySetValue(config_info, kVDADecoderConfiguration_Height      , height);
-  CFDictionarySetValue(config_info, kVDADecoderConfiguration_Width       , width);
+  CFDictionarySetValue(config_info, kVDADecoderConfiguration_Height, height);
+  CFDictionarySetValue(config_info, kVDADecoderConfiguration_Width, width);
   CFDictionarySetValue(config_info, kVDADecoderConfiguration_SourceFormat, format);
-  CFDictionarySetValue(config_info, kVDADecoderConfiguration_avcCData    , avc_data);
+  CFDictionarySetValue(config_info, kVDADecoderConfiguration_avcCData, avcCData);
 
   buffer_attributes = CFDictionaryCreateMutable(kCFAllocatorDefault,
                                                 2,
                                                 &kCFTypeDictionaryKeyCallBacks,
                                                 &kCFTypeDictionaryValueCallBacks);
-  io_surface_properties = CFDictionaryCreateMutable(kCFAllocatorDefault,
-                                                    0,
-                                                    &kCFTypeDictionaryKeyCallBacks,
-                                                    &kCFTypeDictionaryValueCallBacks);
+
+  io_surface_properties = CFDictionaryCreate(kCFAllocatorDefault,
+                                             NULL, NULL, 0,
+                                             &kCFTypeDictionaryKeyCallBacks,
+                                             &kCFTypeDictionaryValueCallBacks);
+
   cv_pix_fmt  = CFNumberCreate(kCFAllocatorDefault,
                                kCFNumberSInt32Type,
-                               &m_ctx->cv_pix_fmt_type);
+                               &pix_fmt);
+
   CFDictionarySetValue(buffer_attributes,
                        kCVPixelBufferPixelFormatTypeKey,
                        cv_pix_fmt);
+
   CFDictionarySetValue(buffer_attributes,
                        kCVPixelBufferIOSurfacePropertiesKey,
                        io_surface_properties);
 
   status = VDADecoderCreate(config_info,
                             buffer_attributes,
-                            (VDADecoderOutputCallback*)vda_decoder_callback,
-                            m_ctx,
+                            (VDADecoderOutputCallback*)m_ctx->output_callback,
+                            avctx,
                             &m_ctx->decoder);
 
   CFRelease(height);
   CFRelease(width);
   CFRelease(format);
-  CFRelease(avc_data);
+  CFRelease(avcCData);
   CFRelease(config_info);
   CFRelease(io_surface_properties);
   CFRelease(cv_pix_fmt);
@@ -181,14 +179,16 @@ void CDecoder::Close()
   if (m_ctx->decoder)
     status = VDADecoderDestroy(m_ctx->decoder);
   m_ctx->decoder = NULL;
-  av_freep(&m_ctx->priv_bitstream);
+
+  delete m_bitstream;
+  m_bitstream = NULL;
 }
 
-bool CDecoder::Open(AVCodecContext *avctx, enum PixelFormat fmt, unsigned int surfaces)
+bool CDecoder::Open(AVCodecContext *avctx, AVCodecContext* mainctx, enum PixelFormat fmt, unsigned int surfaces)
 {
   Close();
 
-  if(fmt != AV_PIX_FMT_VDA_VLD)
+  if(fmt != AV_PIX_FMT_VDA)
     return false;
 
   if(avctx->codec_id != AV_CODEC_ID_H264)
@@ -221,21 +221,14 @@ bool CDecoder::Open(AVCodecContext *avctx, enum PixelFormat fmt, unsigned int su
     return false;
   }
 
-  /* init vda */
-  memset(m_ctx, 0, sizeof(struct vda_context));
-  m_ctx->width  = avctx->width;
-  m_ctx->height = avctx->height;
-  m_ctx->format = 'avc1';
-  m_ctx->use_sync_decoding = 1;
-  m_ctx->cv_pix_fmt_type = kCVPixelFormatType_422YpCbCr8;
-
   if (!Create(avctx))
     return false;
 
-  avctx->pix_fmt         = fmt;
+  avctx->pix_fmt = fmt;
   avctx->hwaccel_context = m_ctx;
-  avctx->get_buffer      = GetBufferS;
-  avctx->release_buffer  = RelBufferS;
+
+  mainctx->pix_fmt = fmt;
+  mainctx->hwaccel_context = m_ctx;
 
   return true;
 }
@@ -256,7 +249,7 @@ bool CDecoder::GetPicture(AVCodecContext* avctx, AVFrame* frame, DVDVideoPicture
 {
   ((CDVDVideoCodecFFmpeg*)avctx->opaque)->GetPictureCommon(picture);
 
-  picture->format      = RENDER_FMT_CVBREF;
+  picture->format = RENDER_FMT_CVBREF;
   picture->cvBufferRef = (CVPixelBufferRef)frame->data[3];
   return true;
 }

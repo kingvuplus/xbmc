@@ -1,5 +1,5 @@
 /*
- *      Copyright (C) 2005-2013 Team XBMC
+ *      Copyright (C) 2005-2015 Team XBMC
  *      http://xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -18,11 +18,12 @@
  *
  */
 
+#include <memory>
+#include <list>
 #include "system.h"
 #include "PowerManager.h"
 #include "Application.h"
 #include "cores/AudioEngine/AEFactory.h"
-#include "input/KeyboardStat.h"
 #include "settings/lib/Setting.h"
 #include "settings/Settings.h"
 #include "windowing/WindowingFactory.h"
@@ -31,7 +32,6 @@
 #include "interfaces/Builtins.h"
 #include "interfaces/AnnouncementManager.h"
 #include "guilib/LocalizeStrings.h"
-#include "guilib/GraphicContext.h"
 #include "guilib/GUIWindowManager.h"
 #include "dialogs/GUIDialogBusy.h"
 #include "dialogs/GUIDialogKaiToast.h"
@@ -47,9 +47,6 @@
 #include "linux/ConsoleDeviceKitPowerSyscall.h"
 #include "linux/LogindUPowerSyscall.h"
 #include "linux/UPowerSyscall.h"
-#if defined(HAS_HAL)
-#include "linux/HALPowerSyscall.h"
-#endif // HAS_HAL
 #endif // HAS_DBUS
 #elif defined(TARGET_WINDOWS)
 #include "powermanagement/windows/Win32PowerSyscall.h"
@@ -78,18 +75,40 @@ void CPowerManager::Initialize()
   m_instance = new CAndroidPowerSyscall();
 #elif defined(TARGET_POSIX)
 #if defined(HAS_DBUS)
-  if (CConsoleUPowerSyscall::HasConsoleKitAndUPower())
-    m_instance = new CConsoleUPowerSyscall();
-  else if (CConsoleDeviceKitPowerSyscall::HasDeviceConsoleKit())
-    m_instance = new CConsoleDeviceKitPowerSyscall();
-  else if (CLogindUPowerSyscall::HasLogind())
-    m_instance = new CLogindUPowerSyscall();
-  else if (CUPowerSyscall::HasUPower())
-    m_instance = new CUPowerSyscall();
-#if defined(HAS_HAL)
-  else if(1)
-    m_instance = new CHALPowerSyscall();
-#endif // HAS_HAL
+  std::unique_ptr<IPowerSyscall> bestPowerManager;
+  std::unique_ptr<IPowerSyscall> currPowerManager;
+  int bestCount = -1;
+  int currCount = -1;
+  
+  std::list< std::pair< std::function<bool()>,
+                        std::function<IPowerSyscall*()> > > powerManagers =
+  {
+    std::make_pair(CConsoleUPowerSyscall::HasConsoleKitAndUPower,
+                   [] { return new CConsoleUPowerSyscall(); }),
+    std::make_pair(CConsoleDeviceKitPowerSyscall::HasDeviceConsoleKit,
+                   [] { return new CConsoleDeviceKitPowerSyscall(); }),
+    std::make_pair(CLogindUPowerSyscall::HasLogind,
+                   [] { return new CLogindUPowerSyscall(); }),
+    std::make_pair(CUPowerSyscall::HasUPower,
+                   [] { return new CUPowerSyscall(); })
+  };
+  for(const auto& powerManager : powerManagers)
+  {
+    if (powerManager.first())
+    {
+      currPowerManager.reset(powerManager.second());
+      currCount = currPowerManager->CountPowerFeatures();
+      if (currCount > bestCount)
+      {
+        bestCount = currCount;
+        bestPowerManager = std::move(currPowerManager);
+      }
+      if (bestCount == IPowerSyscall::MAX_COUNT_POWER_FEATURES)
+        break;
+    }
+  }
+  if (bestPowerManager)
+    m_instance = bestPowerManager.release();
   else
 #endif // HAS_DBUS
     m_instance = new CFallbackPowerSyscall();
@@ -192,7 +211,7 @@ bool CPowerManager::Reboot()
 
   if (success)
   {
-    CAnnouncementManager::Announce(System, "xbmc", "OnRestart");
+    CAnnouncementManager::Get().Announce(System, "xbmc", "OnRestart");
 
     CGUIDialogBusy* dialog = (CGUIDialogBusy*)g_windowManager.GetWindow(WINDOW_DIALOG_BUSY);
     if (dialog)
@@ -234,7 +253,7 @@ void CPowerManager::ProcessEvents()
 
 void CPowerManager::OnSleep()
 {
-  CAnnouncementManager::Announce(System, "xbmc", "OnSleep");
+  CAnnouncementManager::Get().Announce(System, "xbmc", "OnSleep");
   CLog::Log(LOGNOTICE, "%s: Running sleep jobs", __FUNCTION__);
 
   // stop lirc
@@ -268,11 +287,6 @@ void CPowerManager::OnWake()
 #if defined(TARGET_WINDOWS)
     ShowWindow(g_hWnd,SW_RESTORE);
     SetForegroundWindow(g_hWnd);
-#elif !defined(TARGET_DARWIN_OSX)
-    // Hack to reclaim focus, thus rehiding system mouse pointer.
-    // Surely there's a better way?
-    g_graphicsContext.ToggleFullScreenRoot();
-    g_graphicsContext.ToggleFullScreenRoot();
 #endif
   }
   g_application.ResetScreenSaver();
@@ -288,7 +302,7 @@ void CPowerManager::OnWake()
   g_application.UpdateLibraries();
   g_weatherManager.Refresh();
 
-  CAnnouncementManager::Announce(System, "xbmc", "OnWake");
+  CAnnouncementManager::Get().Announce(System, "xbmc", "OnWake");
 }
 
 void CPowerManager::OnLowBattery()
@@ -297,10 +311,10 @@ void CPowerManager::OnLowBattery()
 
   CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Warning, g_localizeStrings.Get(13050), "");
 
-  CAnnouncementManager::Announce(System, "xbmc", "OnLowBattery");
+  CAnnouncementManager::Get().Announce(System, "xbmc", "OnLowBattery");
 }
 
-void CPowerManager::SettingOptionsShutdownStatesFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current)
+void CPowerManager::SettingOptionsShutdownStatesFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data)
 {
   if (g_powerManager.CanPowerdown())
     list.push_back(make_pair(g_localizeStrings.Get(13005), POWERSTATE_SHUTDOWN));

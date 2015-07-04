@@ -22,17 +22,13 @@
 
 #if !defined(TARGET_POSIX) && !defined(HAS_GL)
 
-#include "guilib/GraphicContext.h"
-#include "RenderFlags.h"
 #include "RenderFormats.h"
 #include "BaseRenderer.h"
 #include "guilib/D3DResource.h"
 #include "RenderCapture.h"
 #include "settings/VideoSettings.h"
-#include "cores/dvdplayer/DVDCodecs/Video/DXVA.h"
-#include "cores/dvdplayer/DVDCodecs/Video/DXVAHD.h"
-#include "cores/VideoRenderers/RenderFlags.h"
-#include "cores/VideoRenderers/RenderFormats.h"
+#include "DXVA.h"
+#include "DXVAHD.h"
 
 #define ALIGN(value, alignment) (((value)+((alignment)-1))&~((alignment)-1))
 #define CLAMP(a, min, max) ((a) > (max) ? (max) : ( (a) < (min) ? (min) : a ))
@@ -95,6 +91,7 @@ struct SVideoBuffer
   virtual void StartDecode() {};        // Prepare the buffer to receive data from dvdplayer
   virtual void StartRender() {};        // dvdplayer finished filling the buffer with data
   virtual void Clear() {};              // clear the buffer with solid black
+  virtual bool IsReadyToRender() { return true; };
 };
 
 // YV12 decoder textures
@@ -106,7 +103,7 @@ struct SVideoPlane
 
 struct YUVBuffer : SVideoBuffer
 {
-  YUVBuffer() : m_width (0), m_height(0), m_format(RENDER_FMT_NONE), m_activeplanes(0) {}
+  YUVBuffer() : m_width(0), m_height(0), m_format(RENDER_FMT_NONE), m_activeplanes(0), m_locked(false) {}
   ~YUVBuffer();
   bool Create(ERenderFormat format, unsigned int width, unsigned int height);
   virtual void Release();
@@ -114,6 +111,7 @@ struct YUVBuffer : SVideoBuffer
   virtual void StartRender();
   virtual void Clear();
   unsigned int GetActivePlanes() { return m_activeplanes; }
+  virtual bool IsReadyToRender();
 
   SVideoPlane planes[MAX_PLANES];
 
@@ -122,19 +120,18 @@ private:
   unsigned int     m_height;
   ERenderFormat    m_format;
   unsigned int     m_activeplanes;
+  bool             m_locked;
 };
 
 struct DXVABuffer : SVideoBuffer
 {
   DXVABuffer()
   {
-    id   = 0;
+    pic = NULL;
   }
-  ~DXVABuffer();
-  virtual void Release();
-  virtual void StartDecode();
-
-  int64_t           id;
+  ~DXVABuffer() { SAFE_RELEASE(pic); }
+  DXVA::CRenderPicture *pic;
+  unsigned int frameIdx;
 };
 
 class CWinRenderer : public CBaseRenderer
@@ -158,8 +155,9 @@ public:
   virtual void         UnInit();
   virtual void         Reset(); /* resets renderer after seek for example */
   virtual bool         IsConfigured() { return m_bConfigured; }
+  virtual void         Flush();
 
-  virtual std::vector<ERenderFormat> SupportedFormats() { return m_formats; }
+  virtual CRenderInfo GetRenderInfo();
 
   virtual bool         Supports(ERENDERFEATURE feature);
   virtual bool         Supports(EDEINTERLACEMODE mode);
@@ -170,9 +168,9 @@ public:
 
   void                 RenderUpdate(bool clear, DWORD flags = 0, DWORD alpha = 255);
 
-  virtual unsigned int GetProcessorSize();
   virtual void         SetBufferSize(int numBuffers) { m_neededBuffers = numBuffers; }
-  virtual unsigned int GetMaxBufferSize() { return NUM_BUFFERS; }
+  virtual void         ReleaseBuffer(int idx);
+  virtual bool         NeedBufferForRef(int idx);
 
 protected:
   virtual void Render(DWORD flags);
@@ -208,9 +206,6 @@ protected:
   std::vector<ERenderFormat> m_formats;
 
   // software scale libraries (fallback if required pixel shaders version is not available)
-  DllAvUtil           *m_dllAvUtil;
-  DllAvCodec          *m_dllAvCodec;
-  DllSwScale          *m_dllSwScale;
   struct SwsContext   *m_sw_scale_ctx;
 
   // Software rendering
@@ -243,6 +238,7 @@ protected:
   unsigned int         m_destHeight;
 
   int                  m_neededBuffers;
+  unsigned int         m_frameIdx;
 };
 
 #else

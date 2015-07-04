@@ -22,6 +22,7 @@
 #include "cores/AudioEngine/AEFactory.h"
 #include "cores/AudioEngine/Engines/ActiveAE/ActiveAE.h"
 #include "cores/AudioEngine/Utils/AEUtil.h"
+#include "cores/AudioEngine/AEResampleFactory.h"
 
 using namespace ActiveAE;
 
@@ -44,6 +45,9 @@ CSoundPacket::~CSoundPacket()
 CSampleBuffer::CSampleBuffer() : pkt(NULL), pool(NULL)
 {
   refCount = 0;
+  timestamp = 0;
+  clockId = -1;
+  pkt_start_offset = 0;
 }
 
 CSampleBuffer::~CSampleBuffer()
@@ -105,11 +109,12 @@ bool CActiveAEBufferPool::Create(unsigned int totaltime)
 {
   CSampleBuffer *buffer;
   SampleConfig config;
-  config.fmt = CActiveAEResample::GetAVSampleFormat(m_format.m_dataFormat);
+  config.fmt = CAEUtil::GetAVSampleFormat(m_format.m_dataFormat);
   config.bits_per_sample = CAEUtil::DataFormatToUsedBits(m_format.m_dataFormat);
+  config.dither_bits = CAEUtil::DataFormatToDitherBits(m_format.m_dataFormat);
   config.channels = m_format.m_channelLayout.Count();
   config.sample_rate = m_format.m_sampleRate;
-  config.channel_layout = CActiveAEResample::GetAVChannelLayout(m_format.m_channelLayout);
+  config.channel_layout = CAEUtil::GetAVChannelLayout(m_format.m_channelLayout);
 
   unsigned int time = 0;
   unsigned int buffertime = (m_format.m_frames*1000) / m_format.m_sampleRate;
@@ -145,6 +150,7 @@ CActiveAEBufferPoolResample::CActiveAEBufferPoolResample(AEAudioFormat inputForm
   m_resampleRatio = 1.0;
   m_resampleQuality = quality;
   m_changeResampler = false;
+  m_forceResampler = false;
   m_stereoUpmix = false;
   m_normalize = true;
 }
@@ -158,6 +164,7 @@ bool CActiveAEBufferPoolResample::Create(unsigned int totaltime, bool remap, boo
 {
   CActiveAEBufferPool::Create(totaltime);
 
+  m_remap = remap;
   m_stereoUpmix = upmix;
   m_normalize = true;
   if ((m_format.m_channelLayout.Count() < m_inputFormat.m_channelLayout.Count() && !normalize))
@@ -166,23 +173,26 @@ bool CActiveAEBufferPoolResample::Create(unsigned int totaltime, bool remap, boo
   if (m_inputFormat.m_channelLayout != m_format.m_channelLayout ||
       m_inputFormat.m_sampleRate != m_format.m_sampleRate ||
       m_inputFormat.m_dataFormat != m_format.m_dataFormat ||
-      m_changeResampler)
+      m_forceResampler)
   {
-    m_resampler = new CActiveAEResample();
-    m_resampler->Init(CActiveAEResample::GetAVChannelLayout(m_format.m_channelLayout),
+    m_resampler = CAEResampleFactory::Create();
+    m_resampler->Init(CAEUtil::GetAVChannelLayout(m_format.m_channelLayout),
                                 m_format.m_channelLayout.Count(),
                                 m_format.m_sampleRate,
-                                CActiveAEResample::GetAVSampleFormat(m_format.m_dataFormat),
+                                CAEUtil::GetAVSampleFormat(m_format.m_dataFormat),
                                 CAEUtil::DataFormatToUsedBits(m_format.m_dataFormat),
-                                CActiveAEResample::GetAVChannelLayout(m_inputFormat.m_channelLayout),
+                                CAEUtil::DataFormatToDitherBits(m_format.m_dataFormat),
+                                CAEUtil::GetAVChannelLayout(m_inputFormat.m_channelLayout),
                                 m_inputFormat.m_channelLayout.Count(),
                                 m_inputFormat.m_sampleRate,
-                                CActiveAEResample::GetAVSampleFormat(m_inputFormat.m_dataFormat),
+                                CAEUtil::GetAVSampleFormat(m_inputFormat.m_dataFormat),
                                 CAEUtil::DataFormatToUsedBits(m_inputFormat.m_dataFormat),
+                                CAEUtil::DataFormatToDitherBits(m_inputFormat.m_dataFormat),
                                 upmix,
                                 m_normalize,
                                 remap ? &m_format.m_channelLayout : NULL,
-                                m_resampleQuality);
+                                m_resampleQuality,
+                                m_forceResampler);
   }
 
   m_changeResampler = false;
@@ -194,26 +204,29 @@ void CActiveAEBufferPoolResample::ChangeResampler()
 {
   delete m_resampler;
 
-  m_resampler = new CActiveAEResample();
-  m_resampler->Init(CActiveAEResample::GetAVChannelLayout(m_format.m_channelLayout),
+  m_resampler = CAEResampleFactory::Create();
+  m_resampler->Init(CAEUtil::GetAVChannelLayout(m_format.m_channelLayout),
                                 m_format.m_channelLayout.Count(),
                                 m_format.m_sampleRate,
-                                CActiveAEResample::GetAVSampleFormat(m_format.m_dataFormat),
+                                CAEUtil::GetAVSampleFormat(m_format.m_dataFormat),
                                 CAEUtil::DataFormatToUsedBits(m_format.m_dataFormat),
-                                CActiveAEResample::GetAVChannelLayout(m_inputFormat.m_channelLayout),
+                                CAEUtil::DataFormatToDitherBits(m_format.m_dataFormat),
+                                CAEUtil::GetAVChannelLayout(m_inputFormat.m_channelLayout),
                                 m_inputFormat.m_channelLayout.Count(),
                                 m_inputFormat.m_sampleRate,
-                                CActiveAEResample::GetAVSampleFormat(m_inputFormat.m_dataFormat),
+                                CAEUtil::GetAVSampleFormat(m_inputFormat.m_dataFormat),
                                 CAEUtil::DataFormatToUsedBits(m_inputFormat.m_dataFormat),
+                                CAEUtil::DataFormatToDitherBits(m_inputFormat.m_dataFormat),
                                 m_stereoUpmix,
                                 m_normalize,
-                                NULL,
-                                m_resampleQuality);
+                                m_remap ? &m_format.m_channelLayout : NULL,
+                                m_resampleQuality,
+                                m_forceResampler);
 
   m_changeResampler = false;
 }
 
-bool CActiveAEBufferPoolResample::ResampleBuffers(unsigned int timestamp)
+bool CActiveAEBufferPoolResample::ResampleBuffers(int64_t timestamp)
 {
   bool busy = false;
   CSampleBuffer *in;
@@ -229,15 +242,17 @@ bool CActiveAEBufferPoolResample::ResampleBuffers(unsigned int timestamp)
     {
       in = m_inputSamples.front();
       m_inputSamples.pop_front();
-      in->timestamp = timestamp;
+      if (timestamp)
+      {
+        in->timestamp = timestamp;
+        in->clockId = -1;
+      }
       m_outputSamples.push_back(in);
       busy = true;
     }
   }
   else if (m_procSample || !m_freeSamples.empty())
   {
-    // GetBufferedSamples is not accurate because of rounding errors
-    int out_samples = m_resampler->GetBufferedSamples();
     int free_samples;
     if (m_procSample)
       free_samples = m_procSample->pkt->max_nb_samples - m_procSample->pkt->nb_samples;
@@ -246,7 +261,7 @@ bool CActiveAEBufferPoolResample::ResampleBuffers(unsigned int timestamp)
 
     bool skipInput = false;
     // avoid that ffmpeg resample buffer grows too large
-    if (out_samples > free_samples * 2 && !m_empty)
+    if (!m_resampler->WantsNewSamples(free_samples) && !m_empty)
       skipInput = true;
 
     bool hasInput = !m_inputSamples.empty();
@@ -276,14 +291,44 @@ bool CActiveAEBufferPoolResample::ResampleBuffers(unsigned int timestamp)
         m_planes[i] = m_procSample->pkt->data[i] + start;
       }
 
-      out_samples = m_resampler->Resample(m_planes,
-                                          m_procSample->pkt->max_nb_samples - m_procSample->pkt->nb_samples,
-                                          in ? in->pkt->data : NULL,
-                                          in ? in->pkt->nb_samples : 0,
-                                          m_resampleRatio);
+      int out_samples = m_resampler->Resample(m_planes,
+                                              m_procSample->pkt->max_nb_samples - m_procSample->pkt->nb_samples,
+                                              in ? in->pkt->data : NULL,
+                                              in ? in->pkt->nb_samples : 0,
+                                              m_resampleRatio);
+      // in case of error, trigger re-create of resampler
+      if (out_samples < 0)
+      {
+        out_samples = 0;
+        m_changeResampler = true;
+      }
+
       m_procSample->pkt->nb_samples += out_samples;
       busy = true;
       m_empty = (out_samples == 0);
+
+      if (in)
+      {
+        if (!timestamp)
+        {
+          m_lastSamplePts = in->timestamp;
+          m_procSample->clockId = in->clockId;
+        }
+        else
+        {
+          m_lastSamplePts = timestamp;
+          in->pkt_start_offset = 0;
+          m_procSample->clockId = -1;
+        }
+
+        // pts of last sample we added to the buffer
+        m_lastSamplePts += (in->pkt->nb_samples-in->pkt_start_offset)/m_format.m_sampleRate * 1000;
+      }
+
+      // calculate pts for last sample in m_procSample
+      int bufferedSamples = m_resampler->GetBufferedSamples();
+      m_procSample->pkt_start_offset = m_procSample->pkt->nb_samples;
+      m_procSample->timestamp = m_lastSamplePts - bufferedSamples/m_format.m_sampleRate*1000;
 
       if ((m_drain || m_changeResampler) && m_empty)
       {
@@ -299,7 +344,6 @@ bool CActiveAEBufferPoolResample::ResampleBuffers(unsigned int timestamp)
             memset(m_procSample->pkt->data[i]+start, 0, m_procSample->pkt->linesize-start);
           }
         }
-        m_procSample->timestamp = timestamp;
 
         // check if draining is finished
         if (m_drain && m_procSample->pkt->nb_samples == 0)
@@ -317,7 +361,6 @@ bool CActiveAEBufferPoolResample::ResampleBuffers(unsigned int timestamp)
       // some methods like encode require completely filled packets
       else if (!m_fillPackets || (m_procSample->pkt->nb_samples == m_procSample->pkt->max_nb_samples))
       {
-        m_procSample->timestamp = timestamp;
         m_outputSamples.push_back(m_procSample);
         m_procSample = NULL;
       }
@@ -373,4 +416,6 @@ void CActiveAEBufferPoolResample::Flush()
     m_outputSamples.front()->Return();
     m_outputSamples.pop_front();
   }
+  if (m_resampler)
+    ChangeResampler();
 }

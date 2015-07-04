@@ -20,7 +20,6 @@
 #include "system.h"
 
 #include "AEFactory.h"
-#include "Utils/AEUtil.h"
 
 #include "Engines/ActiveAE/ActiveAE.h"
 
@@ -40,27 +39,11 @@ IAE *CAEFactory::GetEngine()
 
 bool CAEFactory::LoadEngine()
 {
-// oskwon
-#if defined(TARGET_DVBBOX)
-  return true;
-#else
-  return CAEFactory::LoadEngine(AE_ENGINE_ACTIVE);
-#endif /*TARGET_DVBBOX*/
-}
-
-bool CAEFactory::LoadEngine(enum AEEngine engine)
-{
   /* can only load the engine once, XBMC restart is required to change it */
   if (AE)
     return false;
 
-  switch(engine)
-  {
-    case AE_ENGINE_NULL     :
-    case AE_ENGINE_ACTIVE   : AE = new ActiveAE::CActiveAE(); break;
-    default:
-      return false;
-  }
+  AE = new ActiveAE::CActiveAE();
 
   if (AE && !AE->CanInit())
   {
@@ -83,10 +66,6 @@ void CAEFactory::UnLoadEngine()
 
 bool CAEFactory::StartEngine()
 {
-// oskwon
-#if defined(TARGET_DVBBOX)
-  return true;
-#else
   if (!AE)
     return false;
 
@@ -96,7 +75,6 @@ bool CAEFactory::StartEngine()
   delete AE;
   AE = NULL;
   return false;
-#endif /*TARGET_DVBBOX*/
 }
 
 bool CAEFactory::Suspend()
@@ -226,6 +204,20 @@ bool CAEFactory::SupportsSilenceTimeout()
   return false;
 }
 
+bool CAEFactory::HasStereoAudioChannelCount()
+{
+  if(AE)
+    return AE->HasStereoAudioChannelCount();
+  return false;
+}
+
+bool CAEFactory::HasHDAudioChannelCount()
+{
+  if(AE)
+    return AE->HasHDAudioChannelCount();
+  return false;
+}
+
 /**
   * Returns true if current AudioEngine supports at lest two basic quality levels
   * @return true if quality setting is supported, otherwise false
@@ -301,17 +293,17 @@ void CAEFactory::GarbageCollect()
     AE->GarbageCollect();
 }
 
-void CAEFactory::SettingOptionsAudioDevicesFiller(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current)
+void CAEFactory::SettingOptionsAudioDevicesFiller(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current, void *data)
 {
   SettingOptionsAudioDevicesFillerGeneral(setting, list, current, false);
 }
 
-void CAEFactory::SettingOptionsAudioDevicesPassthroughFiller(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current)
+void CAEFactory::SettingOptionsAudioDevicesPassthroughFiller(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current, void *data)
 {
   SettingOptionsAudioDevicesFillerGeneral(setting, list, current, true);
 }
 
-void CAEFactory::SettingOptionsAudioQualityLevelsFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current)
+void CAEFactory::SettingOptionsAudioQualityLevelsFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data)
 {
   if (!AE)
     return;
@@ -324,9 +316,11 @@ void CAEFactory::SettingOptionsAudioQualityLevelsFiller(const CSetting *setting,
     list.push_back(std::make_pair(g_localizeStrings.Get(13508), AE_QUALITY_HIGH));
   if(AE->SupportsQualityLevel(AE_QUALITY_REALLYHIGH))
     list.push_back(std::make_pair(g_localizeStrings.Get(13509), AE_QUALITY_REALLYHIGH));
+  if(AE->SupportsQualityLevel(AE_QUALITY_GPU))
+    list.push_back(std::make_pair(g_localizeStrings.Get(38010), AE_QUALITY_GPU));
 }
 
-void CAEFactory::SettingOptionsAudioStreamsilenceFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current)
+void CAEFactory::SettingOptionsAudioStreamsilenceFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data)
 {
   if (!AE)
     return;
@@ -384,9 +378,9 @@ void CAEFactory::UnregisterAudioCallback()
     AE->UnregisterAudioCallback();
 }
 
-bool CAEFactory::IsSettingVisible(const std::string &condition, const std::string &value, const std::string &settingId)
+bool CAEFactory::IsSettingVisible(const std::string &condition, const std::string &value, const CSetting *setting, void *data)
 {
-  if (settingId.empty() || value.empty() || !AE)
+  if (setting == NULL || value.empty() || !AE)
     return false;
 
   return AE->IsSettingVisible(value);

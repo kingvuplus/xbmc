@@ -22,8 +22,25 @@
 #include "DVDClock.h"
 #include "cores/VideoRenderers/RenderManager.h"
 #include "utils/log.h"
-#include "utils/fastmemcpy.h"
-#include "DllSwScale.h"
+#include "cores/FFmpeg.h"
+#include "Util.h"
+#ifdef HAS_DX
+#include "cores/dvdplayer/DVDCodecs/Video/DXVA.h"
+#endif
+
+#ifdef TARGET_WINDOWS
+#pragma comment(lib, "avcodec.lib")
+#pragma comment(lib, "avfilter.lib")
+#pragma comment(lib, "avformat.lib")
+#pragma comment(lib, "avutil.lib")
+#pragma comment(lib, "postproc.lib")
+#pragma comment(lib, "swresample.lib")
+#pragma comment(lib, "swscale.lib")
+#endif
+
+extern "C" {
+#include "libswscale/swscale.h"
+}
 
 // allocate a new picture (PIX_FMT_YUV420P)
 DVDVideoPicture* CDVDCodecUtils::AllocatePicture(int iWidth, int iHeight)
@@ -77,7 +94,7 @@ bool CDVDCodecUtils::CopyPicture(DVDVideoPicture* pDst, DVDVideoPicture* pSrc)
 
   for (int y = 0; y < h; y++)
   {
-    fast_memcpy(d, s, w);
+    memcpy(d, s, w);
     s += pSrc->iLineSize[0];
     d += pDst->iLineSize[0];
   }
@@ -89,7 +106,7 @@ bool CDVDCodecUtils::CopyPicture(DVDVideoPicture* pDst, DVDVideoPicture* pSrc)
   d = pDst->data[1];
   for (int y = 0; y < h; y++)
   {
-    fast_memcpy(d, s, w);
+    memcpy(d, s, w);
     s += pSrc->iLineSize[1];
     d += pDst->iLineSize[1];
   }
@@ -98,7 +115,7 @@ bool CDVDCodecUtils::CopyPicture(DVDVideoPicture* pDst, DVDVideoPicture* pSrc)
   d = pDst->data[2];
   for (int y = 0; y < h; y++)
   {
-    fast_memcpy(d, s, w);
+    memcpy(d, s, w);
     s += pSrc->iLineSize[2];
     d += pDst->iLineSize[2];
   }
@@ -113,13 +130,13 @@ bool CDVDCodecUtils::CopyPicture(YV12Image* pImage, DVDVideoPicture *pSrc)
   int h = pImage->height;
   if ((w == pSrc->iLineSize[0]) && ((unsigned int) pSrc->iLineSize[0] == pImage->stride[0]))
   {
-    fast_memcpy(d, s, w*h);
+    memcpy(d, s, w*h);
   }
   else
   {
     for (int y = 0; y < h; y++)
     {
-      fast_memcpy(d, s, w);
+      memcpy(d, s, w);
       s += pSrc->iLineSize[0];
       d += pImage->stride[0];
     }
@@ -130,13 +147,13 @@ bool CDVDCodecUtils::CopyPicture(YV12Image* pImage, DVDVideoPicture *pSrc)
   h =(pImage->height >> pImage->cshift_y);
   if ((w==pSrc->iLineSize[1]) && ((unsigned int) pSrc->iLineSize[1]==pImage->stride[1]))
   {
-    fast_memcpy(d, s, w*h);
+    memcpy(d, s, w*h);
   }
   else
   {
     for (int y = 0; y < h; y++)
     {
-      fast_memcpy(d, s, w);
+      memcpy(d, s, w);
       s += pSrc->iLineSize[1];
       d += pImage->stride[1];
     }
@@ -145,13 +162,13 @@ bool CDVDCodecUtils::CopyPicture(YV12Image* pImage, DVDVideoPicture *pSrc)
   d = pImage->plane[2];
   if ((w==pSrc->iLineSize[2]) && ((unsigned int) pSrc->iLineSize[2]==pImage->stride[2]))
   {
-    fast_memcpy(d, s, w*h);
+    memcpy(d, s, w*h);
   }
   else
   {
     for (int y = 0; y < h; y++)
     {
-      fast_memcpy(d, s, w);
+      memcpy(d, s, w);
       s += pSrc->iLineSize[2];
       d += pImage->stride[2];
     }
@@ -189,7 +206,7 @@ DVDVideoPicture* CDVDCodecUtils::ConvertToNV12Picture(DVDVideoPicture *pSrc)
       uint8_t *d = pPicture->data[0];
       for (int y = 0; y < (int)pSrc->iHeight; y++)
       {
-        fast_memcpy(d, s, pSrc->iWidth);
+        memcpy(d, s, pSrc->iWidth);
         s += pSrc->iLineSize[0];
         d += pPicture->iLineSize[0];
       }
@@ -241,12 +258,6 @@ DVDVideoPicture* CDVDCodecUtils::ConvertToYUV422PackedPicture(DVDVideoPicture *p
 
       //if this is going to be used for anything else than testing the renderer
       //the library should not be loaded on every function call
-      DllSwScale  dllSwScale;
-      if (!dllSwScale.Load())
-      {
-        CLog::Log(LOGERROR,"CDVDCodecUtils::ConvertToYUY2Picture - failed to load rescale libraries!");
-      }
-      else
       {
         // Perform the scaling.
         uint8_t* src[] =       { pSrc->data[0],          pSrc->data[1],      pSrc->data[2],      NULL };
@@ -260,11 +271,11 @@ DVDVideoPicture* CDVDCodecUtils::ConvertToYUV422PackedPicture(DVDVideoPicture *p
         else
           dstformat = PIX_FMT_YUYV422;
 
-        struct SwsContext *ctx = dllSwScale.sws_getContext(pSrc->iWidth, pSrc->iHeight, PIX_FMT_YUV420P,
-                                                           pPicture->iWidth, pPicture->iHeight, dstformat,
+        struct SwsContext *ctx = sws_getContext(pSrc->iWidth, pSrc->iHeight, PIX_FMT_YUV420P,
+                                                           pPicture->iWidth, pPicture->iHeight, (AVPixelFormat)dstformat,
                                                            SWS_FAST_BILINEAR | SwScaleCPUFlags(), NULL, NULL, NULL);
-        dllSwScale.sws_scale(ctx, src, srcStride, 0, pSrc->iHeight, dst, dstStride);
-        dllSwScale.sws_freeContext(ctx);
+        sws_scale(ctx, src, srcStride, 0, pSrc->iHeight, dst, dstStride);
+        sws_freeContext(ctx);
       }
     }
     else
@@ -286,13 +297,13 @@ bool CDVDCodecUtils::CopyNV12Picture(YV12Image* pImage, DVDVideoPicture *pSrc)
   // Copy Y
   if ((w == pSrc->iLineSize[0]) && ((unsigned int) pSrc->iLineSize[0] == pImage->stride[0]))
   {
-    fast_memcpy(d, s, w*h);
+    memcpy(d, s, w*h);
   }
   else
   {
     for (int y = 0; y < h; y++)
     {
-      fast_memcpy(d, s, w);
+      memcpy(d, s, w);
       s += pSrc->iLineSize[0];
       d += pImage->stride[0];
     }
@@ -305,13 +316,13 @@ bool CDVDCodecUtils::CopyNV12Picture(YV12Image* pImage, DVDVideoPicture *pSrc)
   // Copy packed UV (width is same as for Y as it's both U and V components)
   if ((w==pSrc->iLineSize[1]) && ((unsigned int) pSrc->iLineSize[1]==pImage->stride[1]))
   {
-    fast_memcpy(d, s, w*h);
+    memcpy(d, s, w*h);
   }
   else
   {
     for (int y = 0; y < h; y++)
     {
-      fast_memcpy(d, s, w);
+      memcpy(d, s, w);
       s += pSrc->iLineSize[1];
       d += pImage->stride[1];
     }
@@ -330,13 +341,13 @@ bool CDVDCodecUtils::CopyYUV422PackedPicture(YV12Image* pImage, DVDVideoPicture 
   // Copy YUYV
   if ((w * 2 == pSrc->iLineSize[0]) && ((unsigned int) pSrc->iLineSize[0] == pImage->stride[0]))
   {
-    fast_memcpy(d, s, w*h*2);
+    memcpy(d, s, w*h*2);
   }
   else
   {
     for (int y = 0; y < h; y++)
     {
-      fast_memcpy(d, s, w*2);
+      memcpy(d, s, w*2);
       s += pSrc->iLineSize[0];
       d += pImage->stride[0];
     }
@@ -353,7 +364,7 @@ bool CDVDCodecUtils::CopyDXVA2Picture(YV12Image* pImage, DVDVideoPicture *pSrc)
   {
     case MAKEFOURCC('N','V','1','2'):
       {
-        IDirect3DSurface9* surface = (IDirect3DSurface9*)pSrc->data[3];
+        IDirect3DSurface9* surface = (IDirect3DSurface9*)(pSrc->dxva->surface);
 
         D3DLOCKED_RECT rectangle;
         if (FAILED(surface->LockRect(&rectangle, NULL, 0)))
@@ -419,7 +430,7 @@ bool CDVDCodecUtils::IsVP3CompatibleWidth(int width)
   return true;
 }
 
-double CDVDCodecUtils::NormalizeFrameduration(double frameduration)
+double CDVDCodecUtils::NormalizeFrameduration(double frameduration, bool *match)
 {
   //if the duration is within 20 microseconds of a common duration, use that
   const double durations[] = {DVD_TIME_BASE * 1.001 / 24.0, DVD_TIME_BASE / 24.0, DVD_TIME_BASE / 25.0,
@@ -428,7 +439,7 @@ double CDVDCodecUtils::NormalizeFrameduration(double frameduration)
 
   double lowestdiff = DVD_TIME_BASE;
   int    selected   = -1;
-  for (size_t i = 0; i < sizeof(durations) / sizeof(durations[0]); i++)
+  for (size_t i = 0; i < ARRAY_SIZE(durations); i++)
   {
     double diff = fabs(frameduration - durations[i]);
     if (diff < DVD_MSEC_TO_TIME(0.02) && diff < lowestdiff)
@@ -439,9 +450,17 @@ double CDVDCodecUtils::NormalizeFrameduration(double frameduration)
   }
 
   if (selected != -1)
+  {
+    if (match)
+      *match = true;
     return durations[selected];
+  }
   else
+  {
+    if (match)
+      *match = false;
     return frameduration;
+  }
 }
 
 struct EFormatMap {

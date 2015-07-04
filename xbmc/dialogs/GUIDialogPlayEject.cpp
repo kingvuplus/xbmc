@@ -18,14 +18,11 @@
  *
  */
 
-#include "Autorun.h"
 #include "GUIDialogPlayEject.h"
 #include "guilib/GUIWindowManager.h"
 #include "storage/MediaManager.h"
 #include "utils/log.h"
-#include "utils/URIUtils.h"
 #include "utils/XMLUtils.h"
-#include "video/VideoInfoTag.h"
 
 #define ID_BUTTON_PLAY      11
 #define ID_BUTTON_EJECT     10
@@ -100,7 +97,7 @@ bool CGUIDialogPlayEject::ShowAndGetInput(const CFileItem & item,
     return false;
 
   // Figure out Lines 1 and 2 of the dialog
-  CStdString strLine1, strLine2;
+  std::string strLine1, strLine2;
   CXBMCTinyXML discStubXML;
   if (discStubXML.LoadFile(item.GetPath()))
   {

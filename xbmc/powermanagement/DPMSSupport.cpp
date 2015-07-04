@@ -22,7 +22,6 @@
 #include "DPMSSupport.h"
 #include "utils/log.h"
 #include "windowing/WindowingFactory.h"
-#include "utils/SystemInfo.h"
 #include <assert.h>
 #include <string>
 #ifdef TARGET_WINDOWS
@@ -174,14 +173,8 @@ bool DPMSSupport::PlatformSpecificDisablePowerSaving()
   DPMSForceLevel(dpy, DPMSModeOn);
   DPMSDisable(dpy);
   XFlush(dpy);
-  // On my ATI, the full-screen window stays blank after waking up from
-  // DPMS, presumably due to being OpenGL. There is something magical about
-  // window expose events (involving the window manager) that solves this
-  // without fail.
-  XUnmapWindow(dpy, g_Windowing.GetWindow());
-  XFlush(dpy);
-  XMapWindow(dpy, g_Windowing.GetWindow());
-  XFlush(dpy);
+
+  g_Windowing.RecreateWindow();
 
   return true;
 }

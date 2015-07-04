@@ -19,10 +19,8 @@
  */
 
 #include "GUIDialogPVRRecordingInfo.h"
-#include "guilib/GUIWindowManager.h"
 #include "FileItem.h"
 
-using namespace std;
 using namespace PVR;
 
 #define CONTROL_BTN_OK  10

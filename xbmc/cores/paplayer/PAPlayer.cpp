@@ -24,15 +24,13 @@
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "music/tags/MusicInfoTag.h"
-#include "utils/TimeUtils.h"
 #include "utils/log.h"
-#include "utils/MathUtils.h"
 #include "utils/JobManager.h"
 
-#include "threads/SingleLock.h"
 #include "cores/AudioEngine/AEFactory.h"
 #include "cores/AudioEngine/Utils/AEUtil.h"
 #include "cores/AudioEngine/Interfaces/AEStream.h"
+#include "cores/DataCacheCore.h"
 
 #define TIME_TO_CACHE_NEXT_FILE 5000 /* 5 seconds before end of song, start caching the next song */
 #define FAST_XFADE_TIME           80 /* 80 milliseconds */
@@ -87,7 +85,7 @@ PAPlayer::~PAPlayer()
   delete m_FileItem;
 }
 
-bool PAPlayer::HandlesType(const CStdString &type)
+bool PAPlayer::HandlesType(const std::string &type)
 {
   ICodec* codec = CodecFactory::CreateCodec(type);
   if (codec && codec->CanInit())
@@ -327,8 +325,6 @@ bool PAPlayer::QueueNextFile(const CFileItem &file)
 
 bool PAPlayer::QueueNextFileEx(const CFileItem &file, bool fadeIn/* = true */, bool job /* = false */)
 {
-  StreamInfo *si = new StreamInfo();
-
   // check if we advance a track of a CUE sheet
   // if this is the case we don't need to open a new stream
   std::string newURL = file.GetMusicInfoTag() ? file.GetMusicInfoTag()->GetURL() : file.GetPath();
@@ -348,6 +344,7 @@ bool PAPlayer::QueueNextFileEx(const CFileItem &file, bool fadeIn/* = true */, b
     m_continueStream = false;
   }
 
+  StreamInfo *si = new StreamInfo();
   if (!si->m_decoder.Create(file, (file.m_lStartOffset * 1000) / 75))
   {
     CLog::Log(LOGWARNING, "PAPlayer::QueueNextFileEx - Failed to create the decoder");
@@ -383,6 +380,9 @@ bool PAPlayer::QueueNextFileEx(const CFileItem &file, bool fadeIn/* = true */, b
     /* yield our time so that the main PAP thread doesnt stall */
     CThread::Sleep(1);
   }
+
+  // set m_upcomingCrossfadeMS depending on type of file and user settings
+  UpdateCrossfadeTime(file);
 
   /* init the streaminfo struct */
   si->m_decoder.GetDataFormat(&si->m_channelInfo, &si->m_sampleRate, &si->m_encodedSampleRate, &si->m_dataFormat);
@@ -421,8 +421,6 @@ bool PAPlayer::QueueNextFileEx(const CFileItem &file, bool fadeIn/* = true */, b
     delete si;
     return false;
   }
-
-  UpdateCrossfadeTime(file);
 
   si->m_prepareTriggered = false;
   si->m_playNextAtFrame = 0;
@@ -828,15 +826,18 @@ bool PAPlayer::QueueData(StreamInfo *si)
   if (!samples)
     return true;
 
-  void* data = si->m_decoder.GetData(samples);
+  // we want complete frames
+  samples -= samples % si->m_channelInfo.Count();
+
+  uint8_t* data = (uint8_t*)si->m_decoder.GetData(samples);
   if (!data)
   {
     CLog::Log(LOGERROR, "PAPlayer::QueueData - Failed to get data from the decoder");
     return false;
   }
 
-  unsigned int added = si->m_stream->AddData(data, samples * si->m_bytesPerSample);
-  si->m_framesSent += added / si->m_bytesPerFrame;
+  unsigned int added = si->m_stream->AddData(&data, 0, samples/si->m_channelInfo.Count(), 0);
+  si->m_framesSent += added;
 
   const ICodec* codec = si->m_decoder.GetCodec();
   m_playerGUIData.m_cacheLevel = codec ? codec->GetCacheLevel() : 0; //update for GUI
@@ -1051,7 +1052,7 @@ void PAPlayer::UpdateGUIData(StreamInfo *si)
   const ICodec* codec = si->m_decoder.GetCodec();
 
   m_playerGUIData.m_audioBitrate = codec ? codec->m_Bitrate : 0;
-  strncpy(m_playerGUIData.m_codec,codec ? codec->m_CodecName : "",20);
+  strncpy(m_playerGUIData.m_codec,codec ? codec->m_CodecName.c_str() : "",20);
   m_playerGUIData.m_cacheLevel   = codec ? codec->GetCacheLevel() : 0;
   m_playerGUIData.m_bitsPerSample = (codec && codec->m_BitsPerCodedSample) ? codec->m_BitsPerCodedSample : si->m_bytesPerSample << 3;
 
@@ -1060,6 +1061,8 @@ void PAPlayer::UpdateGUIData(StreamInfo *si)
     total = m_currentStream->m_endOffset;
   total -= m_currentStream->m_startOffset;
   m_playerGUIData.m_totalTime = total;
+
+  g_dataCacheCore.SignalAudioInfoChange();
 }
 
 void PAPlayer::OnJobComplete(unsigned int jobID, bool success, CJob *job)

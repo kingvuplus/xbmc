@@ -23,8 +23,9 @@
  */
 #pragma once
 
-#include "utils/StdString.h"
+#include <string>
 
+class NPT_LogHandler;
 class PLT_UPnP;
 class PLT_SyncMediaBrowser;
 class PLT_MediaController;
@@ -57,6 +58,11 @@ public:
     void StopClient();
     bool IsClientStarted() { return (m_MediaBrowser != NULL); }
 
+    // controller
+    void StartController();
+    void StopController();
+    bool IsControllerStarted() { return (m_MediaController != NULL); }
+
     // renderer
     bool StartRenderer();
     void StopRenderer();
@@ -78,6 +84,9 @@ public:
     static void RegisterUserdata(void* ptr);
     static void UnregisterUserdata(void* ptr);
 private:
+    void CreateControlPoint();
+    void DestroyControlPoint();
+
     // methods
     CUPnPRenderer* CreateRenderer(int port = 0);
     CUPnPServer*   CreateServer(int port = 0);
@@ -87,8 +96,9 @@ public:
     PLT_MediaController*        m_MediaController;
 
 private:
-    CStdString                  m_IP;
+    std::string                 m_IP;
     PLT_UPnP*                   m_UPnP;
+    NPT_LogHandler*             m_LogHandler;
     CDeviceHostReferenceHolder* m_ServerHolder;
     CRendererReferenceHolder*   m_RendererHolder;
     CCtrlPointReferenceHolder*  m_CtrlPointHolder;

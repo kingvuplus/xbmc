@@ -19,7 +19,6 @@
  */
 
 #include "DVDMessageQueue.h"
-#include "DVDDemuxers/DVDDemuxUtils.h"
 #include "utils/log.h"
 #include "threads/SingleLock.h"
 #include "DVDClock.h"
@@ -44,7 +43,7 @@ CDVDMessageQueue::CDVDMessageQueue(const string &owner) : m_hEvent(true), m_owne
 CDVDMessageQueue::~CDVDMessageQueue()
 {
   // remove all remaining messages
-  Flush();
+  Flush(CDVDMsg::NONE);
 }
 
 void CDVDMessageQueue::Init()
@@ -91,7 +90,7 @@ void CDVDMessageQueue::End()
 {
   CSingleLock lock(m_section);
 
-  Flush();
+  Flush(CDVDMsg::NONE);
 
   m_bInitialized  = false;
   m_iDataSize     = 0;
@@ -249,6 +248,8 @@ void CDVDMessageQueue::WaitUntilEmpty()
 
 int CDVDMessageQueue::GetLevel() const
 {
+  CSingleLock lock(m_section);
+
   if(m_iDataSize > m_iMaxDataSize)
     return 100;
   if(m_iDataSize == 0)
@@ -262,6 +263,8 @@ int CDVDMessageQueue::GetLevel() const
 
 int CDVDMessageQueue::GetTimeSize() const
 {
+  CSingleLock lock(m_section);
+
   if(IsDataBased())
     return 0;
   else

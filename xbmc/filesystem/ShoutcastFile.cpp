@@ -23,7 +23,6 @@
 //
 //////////////////////////////////////////////////////////////////////
 
-#include "threads/SystemClock.h"
 #include "system.h"
 #include "ShoutcastFile.h"
 #include "guilib/GUIWindowManager.h"
@@ -31,9 +30,7 @@
 #include "utils/RegExp.h"
 #include "utils/HTMLUtil.h"
 #include "utils/CharsetConverter.h"
-#include "utils/TimeUtils.h"
 #include "ApplicationMessenger.h"
-#include "utils/log.h"
 #include "FileCache.h"
 #include <climits>
 
@@ -48,6 +45,7 @@ CShoutcastFile::CShoutcastFile() :
   m_buffer = NULL;
   m_cacheReader = NULL;
   m_tagPos = 0;
+  m_metaint = 0;
 }
 
 CShoutcastFile::~CShoutcastFile()
@@ -72,7 +70,7 @@ bool CShoutcastFile::Open(const CURL& url)
   url2.SetProtocolOptions(url2.GetProtocolOptions()+"&noshout=true&Icy-MetaData=1");
   url2.SetProtocol("http");
 
-  bool result = m_file.Open(url2.Get());
+  bool result = m_file.Open(url2);
   if (result)
   {
     m_tag.SetTitle(m_file.GetHttpHeader().GetValue("icy-name"));
@@ -95,8 +93,11 @@ bool CShoutcastFile::Open(const CURL& url)
   return result;
 }
 
-unsigned int CShoutcastFile::Read(void* lpBuf, int64_t uiBufSize)
+ssize_t CShoutcastFile::Read(void* lpBuf, size_t uiBufSize)
 {
+  if (uiBufSize > SSIZE_MAX)
+    uiBufSize = SSIZE_MAX;
+
   if (m_currint >= m_metaint && m_metaint > 0)
   {
     unsigned char header;
@@ -114,13 +115,14 @@ unsigned int CShoutcastFile::Read(void* lpBuf, int64_t uiBufSize)
     m_currint = 0;
   }
 
-  unsigned int toRead;
+  ssize_t toRead;
   if (m_metaint > 0)
-    toRead = std::min((unsigned int)uiBufSize,(unsigned int)m_metaint-m_currint);
+    toRead = std::min<size_t>(uiBufSize,m_metaint-m_currint);
   else
-    toRead = std::min((unsigned int)uiBufSize,(unsigned int)16*255);
+    toRead = std::min<size_t>(uiBufSize,16*255);
   toRead = m_file.Read(lpBuf,toRead);
-  m_currint += toRead;
+  if (toRead > 0)
+    m_currint += toRead;
   return toRead;
 }
 
@@ -139,7 +141,7 @@ void CShoutcastFile::Close()
 
 bool CShoutcastFile::ExtractTagInfo(const char* buf)
 {
-  CStdString strBuffer = buf;
+  std::string strBuffer = buf;
 
   if (!m_fileCharset.empty())
   {
@@ -152,7 +154,7 @@ bool CShoutcastFile::ExtractTagInfo(const char* buf)
   
   bool result=false;
 
-  CStdStringW wBuffer, wConverted;
+  std::wstring wBuffer, wConverted;
   g_charsetConverter.utf8ToW(strBuffer, wBuffer, false);
   HTML::CHTMLUtil::ConvertHTMLToW(wBuffer, wConverted);
   g_charsetConverter.wToUTF8(wConverted, strBuffer);

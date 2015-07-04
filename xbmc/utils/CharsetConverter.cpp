@@ -19,7 +19,6 @@
  */
 
 #include "CharsetConverter.h"
-#include "Util.h"
 #include "utils/StringUtils.h"
 #include <fribidi/fribidi.h>
 #include "LangInfo.h"
@@ -32,6 +31,7 @@
 
 #include <errno.h>
 #include <iconv.h>
+#include <algorithm>
 
 #if !defined(TARGET_WINDOWS) && defined(HAVE_CONFIG_H)
   #include "config.h"
@@ -881,7 +881,7 @@ bool CCharsetConverter::utf8logicalToVisualBiDi(const std::string& utf8StringSrc
   return CInnerConverter::stdConvert(Utf32ToUtf8, utf32flipped, utf8StringDst, failOnBadString);
 }
 
-void CCharsetConverter::SettingOptionsCharsetsFiller(const CSetting* setting, std::vector< std::pair<std::string, std::string> >& list, std::string& current)
+void CCharsetConverter::SettingOptionsCharsetsFiller(const CSetting* setting, std::vector< std::pair<std::string, std::string> >& list, std::string& current, void *data)
 {
   std::vector<std::string> vecCharsets = g_charsetConverter.getCharsetLabels();
   sort(vecCharsets.begin(), vecCharsets.end(), sortstringbyname());

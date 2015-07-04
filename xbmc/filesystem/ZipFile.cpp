@@ -21,6 +21,8 @@
 #include "ZipFile.h"
 #include "URL.h"
 #include "utils/URIUtils.h"
+#include "utils/auto_buffer.h"
+#include "utils/log.h"
 
 #include <sys/stat.h>
 
@@ -46,11 +48,10 @@ CZipFile::~CZipFile()
 
 bool CZipFile::Open(const CURL&url)
 {
-  CStdString strOpts = url.GetOptions();
+  std::string strOpts = url.GetOptions();
   CURL url2(url);
   url2.SetOptions("");
-  CStdString strPath = url2.Get();
-  if (!g_ZipManager.GetZipEntry(strPath,mZipItem))
+  if (!g_ZipManager.GetZipEntry(url2,mZipItem))
     return false;
 
   if ((mZipItem.flags & 64) == 64)
@@ -67,14 +68,15 @@ bool CZipFile::Open(const CURL&url)
 
   if (mZipItem.method != 0 && mZipItem.usize > ZIP_CACHE_LIMIT && strOpts != "?cache=no")
   {
-    if (!CFile::Exists("special://temp/" + URIUtils::GetFileName(strPath)))
+    if (!CFile::Exists("special://temp/" + URIUtils::GetFileName(url2)))
     {
       url2.SetOptions("?cache=no");
-      if (!CFile::Cache(url2.Get(), "special://temp/" + URIUtils::GetFileName(strPath)))
+      const CURL pathToUrl("special://temp/" + URIUtils::GetFileName(url2));
+      if (!CFile::Copy(url2, pathToUrl))
         return false;
     }
     m_bCached = true;
-    return mFile.Open("special://temp/" + URIUtils::GetFileName(strPath));
+    return mFile.Open("special://temp/" + URIUtils::GetFileName(url2));
   }
 
   if (!mFile.Open(url.GetHostName())) // this is the zip-file, always open binary
@@ -167,7 +169,8 @@ int64_t CZipFile::Seek(int64_t iFilePosition, int iWhence)
   // here goes the stupid part..
   if (mZipItem.method == 8)
   {
-    char temp[131072];
+    static const int blockSize = 128 * 1024;
+    XUTILS::auto_buffer buf(blockSize);
     switch (iWhence)
     {
     case SEEK_SET:
@@ -190,8 +193,8 @@ int64_t CZipFile::Seek(int64_t iFilePosition, int iWhence)
         m_ZStream.total_out = 0;
         while (m_iFilePos < iFilePosition)
         {
-          unsigned int iToRead = (iFilePosition-m_iFilePos)>131072?131072:(int)(iFilePosition-m_iFilePos);
-          if (Read(temp,iToRead) != iToRead)
+          unsigned int iToRead = (iFilePosition - m_iFilePos)>blockSize ? blockSize : (int)(iFilePosition - m_iFilePos);
+          if (Read(buf.get(),iToRead) != iToRead)
             return -1;
         }
         return m_iFilePos;
@@ -209,8 +212,8 @@ int64_t CZipFile::Seek(int64_t iFilePosition, int iWhence)
       iFilePosition += m_iFilePos;
       while (m_iFilePos < iFilePosition)
       {
-        unsigned int iToRead = (iFilePosition-m_iFilePos)>131072?131072:(int)(iFilePosition-m_iFilePos);
-        if (Read(temp,iToRead) != iToRead)
+        unsigned int iToRead = (iFilePosition - m_iFilePos)>blockSize ? blockSize : (int)(iFilePosition - m_iFilePos);
+        if (Read(buf.get(), iToRead) != iToRead)
           return -1;
       }
       return m_iFilePos;
@@ -222,8 +225,8 @@ int64_t CZipFile::Seek(int64_t iFilePosition, int iWhence)
 
       while( (int)m_ZStream.total_out < mZipItem.usize+iFilePosition)
       {
-        unsigned int iToRead = (mZipItem.usize+iFilePosition-m_ZStream.total_out > 131072)?131072:(int)(mZipItem.usize+iFilePosition-m_ZStream.total_out);
-        if (Read(temp,iToRead) != iToRead)
+        unsigned int iToRead = (mZipItem.usize + iFilePosition - m_ZStream.total_out > blockSize) ? blockSize : (int)(mZipItem.usize + iFilePosition - m_ZStream.total_out);
+        if (Read(buf.get(), iToRead) != iToRead)
           return -1;
       }
       return m_iFilePos;
@@ -238,7 +241,7 @@ int64_t CZipFile::Seek(int64_t iFilePosition, int iWhence)
 bool CZipFile::Exists(const CURL& url)
 {
   SZipEntry item;
-  if (g_ZipManager.GetZipEntry(url.Get(),item))
+  if (g_ZipManager.GetZipEntry(url,item))
     return true;
   return false;
 }
@@ -265,7 +268,7 @@ int CZipFile::Stat(struct __stat64 *buffer)
 
 int CZipFile::Stat(const CURL& url, struct __stat64* buffer)
 {
-  if (!g_ZipManager.GetZipEntry(url.Get(),mZipItem))
+  if (!g_ZipManager.GetZipEntry(url, mZipItem))
   {
     if (url.GetFileName().empty() && CFile::Exists(url.GetHostName()))
     { // when accessing the zip "root" recognize it as a directory
@@ -283,8 +286,11 @@ int CZipFile::Stat(const CURL& url, struct __stat64* buffer)
   return 0;
 }
 
-unsigned int CZipFile::Read(void* lpBuf, int64_t uiBufSize)
+ssize_t CZipFile::Read(void* lpBuf, size_t uiBufSize)
 {
+  if (uiBufSize > SSIZE_MAX)
+    uiBufSize = SSIZE_MAX;
+
   if (m_bCached)
     return mFile.Read(lpBuf,uiBufSize);
 
@@ -300,7 +306,7 @@ unsigned int CZipFile::Read(void* lpBuf, int64_t uiBufSize)
   {
     uLong iDecompressed = 0;
     uLong prevOut = m_ZStream.total_out;
-    while (((int)iDecompressed < uiBufSize) && ((m_iZipFilePos < mZipItem.csize) || (m_bFlush)))
+    while ((static_cast<size_t>(iDecompressed) < uiBufSize) && ((m_iZipFilePos < mZipItem.csize) || (m_bFlush)))
     {
       m_ZStream.next_out = (Bytef*)(lpBuf)+iDecompressed;
       m_ZStream.avail_out = static_cast<uInt>(uiBufSize-iDecompressed);
@@ -328,7 +334,7 @@ unsigned int CZipFile::Read(void* lpBuf, int64_t uiBufSize)
       if (iMessage < 0)
       {
         Close();
-        return 0; // READ ERROR
+        return -1; // READ ERROR
       }
 
       m_bFlush = ((iMessage == Z_OK) && (m_ZStream.avail_out == 0))?true:false; // more info in input buffer
@@ -342,17 +348,19 @@ unsigned int CZipFile::Read(void* lpBuf, int64_t uiBufSize)
   {
     if (uiBufSize+m_iFilePos > mZipItem.csize)
       uiBufSize = mZipItem.csize-m_iFilePos;
-    if (uiBufSize < 0)
-    {
+
+    if (uiBufSize == 0)
       return 0; // we are past eof, this shouldn't happen but test anyway
-    }
-    unsigned int iResult = mFile.Read(lpBuf,uiBufSize);
+
+    ssize_t iResult = mFile.Read(lpBuf,uiBufSize);
+    if (iResult < 0)
+      return -1;
     m_iZipFilePos += iResult;
     m_iFilePos += iResult;
     return iResult;
   }
   else
-    return false; // shouldn't happen. compression method checked in open
+    return -1; // shouldn't happen. compression method checked in open
 }
 
 void CZipFile::Close()
@@ -435,9 +443,9 @@ bool CZipFile::ReadString(char* szLine, int iLineLength)
 
 bool CZipFile::FillBuffer()
 {
-  unsigned int sToRead = 65535;
+  ssize_t sToRead = 65535;
   if (m_iZipFilePos+65535 > mZipItem.csize)
-    sToRead = static_cast<int>(mZipItem.csize-m_iZipFilePos);
+    sToRead = mZipItem.csize-m_iZipFilePos;
 
   if (sToRead <= 0)
     return false; // eof!

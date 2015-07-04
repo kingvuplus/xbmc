@@ -21,7 +21,6 @@
 #include "DVDInputStreams/DVDInputStream.h"
 #include "DVDDemuxBXA.h"
 #include "DVDDemuxUtils.h"
-#include "utils/log.h"
 #include "utils/StringUtils.h"
 #include "../DVDClock.h"
 
@@ -186,7 +185,7 @@ std::string CDVDDemuxBXA::GetFileName()
     return "";
 }
 
-void CDVDDemuxBXA::GetStreamCodecName(int iStreamId, CStdString &strName)
+void CDVDDemuxBXA::GetStreamCodecName(int iStreamId, std::string &strName)
 {
   if (m_stream && iStreamId == 0)
     strName = "BXA";

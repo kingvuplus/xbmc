@@ -22,7 +22,6 @@
 #include <string.h>
 
 #include "FileItemHandler.h"
-#include "PlaylistOperations.h"
 #include "AudioLibrary.h"
 #include "VideoLibrary.h"
 #include "FileOperations.h"
@@ -43,7 +42,6 @@
 #include "pvr/recordings/PVRRecording.h"
 #include "pvr/timers/PVRTimerInfoTag.h"
 #include "epg/Epg.h"
-#include "epg/EpgContainer.h"
 
 using namespace MUSIC_INFO;
 using namespace JSONRPC;
@@ -312,15 +310,15 @@ void CFileItemHandler::HandleFileItem(const char *ID, bool allowFile, const char
         else if (item->HasMusicInfoTag())
         {
           std::string type = item->GetMusicInfoTag()->GetType();
-          if (type == "album" || type == "song" || type == "artist")
+          if (type == MediaTypeAlbum || type == MediaTypeSong || type == MediaTypeArtist)
             object["type"] = type;
           else if (!item->m_bIsFolder)
-            object["type"] = "song";
+            object["type"] = MediaTypeSong;
         }
         else if (item->HasVideoInfoTag() && !item->GetVideoInfoTag()->m_type.empty())
         {
           std::string type = item->GetVideoInfoTag()->m_type;
-          if (type == "movie" || type == "tvshow" || type == "episode" || type == "musicvideo")
+          if (type == MediaTypeMovie || type == MediaTypeTvShow || type == MediaTypeEpisode || type == MediaTypeMusicVideo)
             object["type"] = type;
         }
         else if (item->HasPictureInfoTag())
@@ -355,13 +353,13 @@ void CFileItemHandler::HandleFileItem(const char *ID, bool allowFile, const char
     }
 
     if (item->HasPVRChannelInfoTag())
-      FillDetails(item->GetPVRChannelInfoTag(), item, fields, object, thumbLoader);
+      FillDetails(item->GetPVRChannelInfoTag().get(), item, fields, object, thumbLoader);
     if (item->HasEPGInfoTag())
-      FillDetails(item->GetEPGInfoTag(), item, fields, object, thumbLoader);
+      FillDetails(item->GetEPGInfoTag().get(), item, fields, object, thumbLoader);
     if (item->HasPVRRecordingInfoTag())
-      FillDetails(item->GetPVRRecordingInfoTag(), item, fields, object, thumbLoader);
+      FillDetails(item->GetPVRRecordingInfoTag().get(), item, fields, object, thumbLoader);
     if (item->HasPVRTimerInfoTag())
-      FillDetails(item->GetPVRTimerInfoTag(), item, fields, object, thumbLoader);
+      FillDetails(item->GetPVRTimerInfoTag().get(), item, fields, object, thumbLoader);
     if (item->HasVideoInfoTag())
       FillDetails(item->GetVideoInfoTag(), item, fields, object, thumbLoader);
     if (item->HasMusicInfoTag())
@@ -394,7 +392,7 @@ bool CFileItemHandler::FillFileItemList(const CVariant &parameterObject, CFileIt
   CVideoLibrary::FillFileItemList(parameterObject, list);
   CFileOperations::FillFileItemList(parameterObject, list);
 
-  CStdString file = parameterObject["file"].asString();
+  std::string file = parameterObject["file"].asString();
   if (!file.empty() && (URIUtils::IsURL(file) || (CFile::Exists(file) && !CDirectory::Exists(file))))
   {
     bool added = false;

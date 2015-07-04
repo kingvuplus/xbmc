@@ -19,9 +19,7 @@
  */
 
 #include "GUIRSSControl.h"
-#include "GUIWindowManager.h"
 #include "settings/Settings.h"
-#include "threads/CriticalSection.h"
 #include "threads/SingleLock.h"
 #include "utils/RssManager.h"
 #include "utils/RssReader.h"
@@ -29,16 +27,15 @@
 
 using namespace std;
 
-CGUIRSSControl::CGUIRSSControl(int parentID, int controlID, float posX, float posY, float width, float height, const CLabelInfo& labelInfo, const CGUIInfoColor &channelColor, const CGUIInfoColor &headlineColor, CStdString& strRSSTags)
+CGUIRSSControl::CGUIRSSControl(int parentID, int controlID, float posX, float posY, float width, float height, const CLabelInfo& labelInfo, const CGUIInfoColor &channelColor, const CGUIInfoColor &headlineColor, std::string& strRSSTags)
 : CGUIControl(parentID, controlID, posX, posY, width, height),
+  m_strRSSTags(strRSSTags),
   m_label(labelInfo),
   m_channelColor(channelColor),
   m_headlineColor(headlineColor),
   m_scrollInfo(0,0,labelInfo.scrollSpeed,""),
   m_dirty(true)
 {
-  m_strRSSTags = strRSSTags;
-
   m_pReader = NULL;
   m_rtl = false;
   m_stopped = false;
@@ -49,6 +46,7 @@ CGUIRSSControl::CGUIRSSControl(int parentID, int controlID, float posX, float po
 CGUIRSSControl::CGUIRSSControl(const CGUIRSSControl &from)
   : CGUIControl(from),
   m_feed(),
+  m_strRSSTags(from.m_strRSSTags),
   m_label(from.m_label),
   m_channelColor(from.m_channelColor),
   m_headlineColor(from.m_headlineColor),
@@ -57,7 +55,6 @@ CGUIRSSControl::CGUIRSSControl(const CGUIRSSControl &from)
   m_scrollInfo(from.m_scrollInfo),
   m_dirty(true)
 {
-  m_strRSSTags = from.m_strRSSTags;
   m_pReader = NULL;
   m_rtl = from.m_rtl;
   m_stopped = from.m_stopped;
@@ -119,17 +116,16 @@ void CGUIRSSControl::Process(unsigned int currentTime, CDirtyRegionList &dirtyre
       dirty = true;
 
       if (CRssManager::Get().GetReader(GetID(), GetParentID(), this, m_pReader))
-        m_scrollInfo.characterPos = m_pReader->m_SavedScrollPos;
+      {
+        m_scrollInfo.pixelPos = m_pReader->m_savedScrollPixelPos;
+      }
       else
       {
         if (m_strRSSTags != "")
         {
-          CStdStringArray vecSplitTags;
-
-          StringUtils::SplitString(m_strRSSTags, ",", vecSplitTags);
-
-          for (unsigned int i = 0;i < vecSplitTags.size();i++)
-            m_pReader->AddTag(vecSplitTags[i]);
+          vector<string> tags = StringUtils::Split(m_strRSSTags, ",");
+          for (vector<string>::const_iterator i = tags.begin(); i != tags.end(); ++i)
+            m_pReader->AddTag(*i);
         }
         // use half the width of the control as spacing between feeds, and double this between feed sets
         float spaceWidth = (m_label.font) ? m_label.font->GetCharWidth(L' ') : 15;
@@ -177,7 +173,7 @@ void CGUIRSSControl::Render()
     if (m_pReader)
     {
       m_pReader->CheckForUpdates();
-      m_pReader->m_SavedScrollPos = m_scrollInfo.characterPos;
+      m_pReader->m_savedScrollPixelPos = m_scrollInfo.pixelPos;
     }
   }
   CGUIControl::Render();

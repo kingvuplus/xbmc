@@ -25,7 +25,6 @@
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "windowing/WindowingFactory.h"
-#include "utils/log.h"
 #include "threads/SingleLock.h"
 #ifndef _USE_MATH_DEFINES
 #define _USE_MATH_DEFINES
@@ -764,10 +763,16 @@ void CSlideShowPic::Render(float *x, float *y, CBaseTexture* pTexture, color_t c
     vertex[i].col = color;
   }
 
-  vertex[1].tu = 1.0f;
-  vertex[2].tu = 1.0f;
-  vertex[2].tv = 1.0f;
-  vertex[3].tv = 1.0f;
+  if (pTexture)
+  {
+    vertex[1].tu = vertex[2].tu = (float)pTexture->GetWidth() / pTexture->GetTextureWidth();
+    vertex[2].tv = vertex[3].tv = (float)pTexture->GetHeight() / pTexture->GetTextureHeight();
+  }
+  else
+  {
+    vertex[1].tu = vertex[2].tu = 1.0f;
+    vertex[2].tv = vertex[3].tv = 1.0f;
+  }
   
   vertex[4] = vertex[0]; // Not used when pTexture != NULL
 
@@ -808,8 +813,9 @@ void CSlideShowPic::Render(float *x, float *y, CBaseTexture* pTexture, color_t c
   g_graphicsContext.BeginPaint();
   if (pTexture)
   {
+    int unit = 0;
     pTexture->LoadToGPU();
-    pTexture->BindToUnit(0);
+    pTexture->BindToUnit(unit++);
 
     glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_BLEND);          // Turn Blending On
@@ -821,6 +827,35 @@ void CSlideShowPic::Render(float *x, float *y, CBaseTexture* pTexture, color_t c
     glTexEnvf(GL_TEXTURE_ENV, GL_OPERAND0_RGB, GL_SRC_COLOR);
     glTexEnvf(GL_TEXTURE_ENV, GL_SOURCE1_RGB, GL_PRIMARY_COLOR);
     glTexEnvf(GL_TEXTURE_ENV, GL_OPERAND1_RGB, GL_SRC_COLOR);
+
+    if(g_Windowing.UseLimitedColor())
+    {
+      // compress range
+      pTexture->BindToUnit(unit++); // dummy bind
+      const GLfloat rgba1[4] = {(235.0 - 16.0f) / 255.0f, (235.0 - 16.0f) / 255.0f, (235.0 - 16.0f) / 255.0f, 1.0f};
+      glTexEnvi (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE , GL_COMBINE);
+      glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, rgba1);
+      glTexEnvi (GL_TEXTURE_ENV, GL_COMBINE_RGB , GL_MODULATE);
+      glTexEnvi (GL_TEXTURE_ENV, GL_SOURCE0_RGB , GL_PREVIOUS);
+      glTexEnvi (GL_TEXTURE_ENV, GL_SOURCE1_RGB , GL_CONSTANT);
+      glTexEnvi (GL_TEXTURE_ENV, GL_OPERAND0_RGB , GL_SRC_COLOR);
+      glTexEnvi (GL_TEXTURE_ENV, GL_OPERAND1_RGB , GL_SRC_COLOR);
+      glTexEnvi (GL_TEXTURE_ENV, GL_COMBINE_ALPHA , GL_REPLACE);
+      glTexEnvi (GL_TEXTURE_ENV, GL_SOURCE0_ALPHA , GL_PREVIOUS);
+
+      // transition
+      pTexture->BindToUnit(unit++); // dummy bind
+      const GLfloat rgba2[4] = {16.0f / 255.0f, 16.0f / 255.0f, 16.0f / 255.0f, 0.0f};
+      glTexEnvi (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE , GL_COMBINE);
+      glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, rgba2);
+      glTexEnvi (GL_TEXTURE_ENV, GL_COMBINE_RGB , GL_ADD);
+      glTexEnvi (GL_TEXTURE_ENV, GL_SOURCE0_RGB , GL_PREVIOUS);
+      glTexEnvi (GL_TEXTURE_ENV, GL_SOURCE1_RGB , GL_CONSTANT);
+      glTexEnvi (GL_TEXTURE_ENV, GL_OPERAND0_RGB , GL_SRC_COLOR);
+      glTexEnvi (GL_TEXTURE_ENV, GL_OPERAND1_RGB , GL_SRC_COLOR);
+      glTexEnvi (GL_TEXTURE_ENV, GL_COMBINE_ALPHA , GL_REPLACE);
+      glTexEnvi (GL_TEXTURE_ENV, GL_SOURCE0_ALPHA , GL_PREVIOUS);
+    }
   }
   else
     glDisable(GL_TEXTURE_2D);

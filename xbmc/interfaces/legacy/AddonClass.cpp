@@ -19,9 +19,9 @@
  */
 
 #include "AddonClass.h"
-
+#ifdef XBMC_ADDON_DEBUG_MEMORY
 #include "utils/log.h"
-
+#endif
 #include "LanguageHook.h"
 #include "AddonUtils.h"
 
@@ -72,7 +72,7 @@ namespace XBMCAddon
 
     long ct = AtomicDecrement((long*)&refs);
 #ifdef LOG_LIFECYCLE_EVENTS
-    CLog::Log(LOGDEBUG,"NEWADDON REFCNT decrementing to %ld on %s 0x%lx", GetClassname(), (long)(((void*)this)));
+    CLog::Log(LOGDEBUG,"NEWADDON REFCNT decrementing to %ld on %s 0x%lx", refs, GetClassname(), (long)(((void*)this)));
 #endif
     if(ct == 0)
     {

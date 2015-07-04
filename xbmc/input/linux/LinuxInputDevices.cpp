@@ -6,7 +6,7 @@
  *      Written by Denis Oliver Kropp <dok@directfb.org>,
  *      Andreas Hundt <andi@fischlustig.de>,
  *      Sven Neumann <neo@directfb.org>,
- *      Ville Syrj������l������ <syrjala@sci.fi> and
+ *      Ville Syrjälä <syrjala@sci.fi> and
  *      Claudio Ciccani <klan@users.sf.net>.
  *
  *      Copyright (C) 2005-2013 Team XBMC
@@ -27,8 +27,6 @@
  *  <http://www.gnu.org/licenses/>.
  *
  */
-#define VKEY_ENABLE (0)
- 
 #include "system.h"
 #if defined(HAS_LINUX_EVENTS)
 
@@ -229,6 +227,7 @@ KeyMap keyMap[] = {
   { KEY_POWER         , XBMCK_POWER       },
   { KEY_KPEQUAL       , XBMCK_KP_EQUALS   },
   { KEY_PAUSE         , XBMCK_PAUSE       },
+  { KEY_PAUSECD       , XBMCK_PAUSE       },
   { KEY_LEFTMETA      , XBMCK_LMETA       },
   { KEY_RIGHTMETA     , XBMCK_RMETA       },
   { KEY_COMPOSE       , XBMCK_LSUPER      },
@@ -248,20 +247,19 @@ KeyMap keyMap[] = {
   { KEY_SCROLLUP      , XBMCK_PAGEUP      },
   { KEY_SCROLLDOWN    , XBMCK_PAGEDOWN    },
   { KEY_PLAY          , XBMCK_PLAY        },
+  { KEY_PLAYCD        , XBMCK_PLAY        },
   { KEY_FASTFORWARD   , XBMCK_FASTFORWARD },
   { KEY_PRINT         , XBMCK_PRINT       },
   { KEY_QUESTION      , XBMCK_HELP        },
+  { KEY_BACK          , XBMCK_BACKSPACE   },
   // The Little Black Box Remote Additions
-  { 384               , XBMCK_LEFT        }, // left
-  { 378               , XBMCK_RIGHT       }, // right
-  { 381               , XBMCK_UP          }, // up
-  { 366               , XBMCK_DOWN        }, // down
-#ifdef TARGET_DVBBOX // oskwon
-  { KEY_OK            , XBMCK_RETURN      }, // Ok
-  { KEY_EXIT          , XBMCK_ESCAPE      }, // EXIT
-#endif /*TARGET_DVBBOX*/
+  { 384               , XBMCK_LEFT        }, // Red
+  { 378               , XBMCK_RIGHT       }, // Green
+  { 381               , XBMCK_UP          }, // Yellow
+  { 366               , XBMCK_DOWN        }, // Blue
+  // Rii i7 Home button / wetek openelec remote (code 172)
+  { KEY_HOMEPAGE      , XBMCK_HOME        },
 };
-
 
 typedef enum
 {
@@ -281,12 +279,12 @@ typedef enum
 
 static char remoteStatus = 0xFF; // paired, battery OK
 
-CLinuxInputDevice::CLinuxInputDevice(const std::string fileName, int index)
+CLinuxInputDevice::CLinuxInputDevice(const std::string& fileName, int index):
+  m_fileName(fileName)
 {
   m_fd = -1;
   m_vt_fd = -1;
   m_hasLeds = false;
-  m_fileName = fileName;
   m_ledState[0] = false;
   m_ledState[1] = false;
   m_ledState[2] = false;
@@ -533,17 +531,9 @@ bool CLinuxInputDevice::KeyEvent(const struct input_event& levt, XBMC_Event& dev
 
     KeymapEntry entry;
     entry.code = code;
-
-	int keyMapValue;
-#if defined(TARGET_DVBBOX) // oskwon
-	if (devt.key.keysym.mod & (XBMCKMOD_SHIFT | XBMCKMOD_CAPS)) keyMapValue = entry.shift;
-	else if (devt.key.keysym.mod & XBMCKMOD_ALT) keyMapValue = entry.alt;
-	else if (devt.key.keysym.mod & XBMCKMOD_META) keyMapValue = entry.altShift;
-	else keyMapValue = entry.base;
-	devt.key.keysym.unicode = devt.key.keysym.sym;
-#else
-	if (GetKeymapEntry(entry))
+    if (GetKeymapEntry(entry))
     {
+      int keyMapValue;
       if (devt.key.keysym.mod & (XBMCKMOD_SHIFT | XBMCKMOD_CAPS)) keyMapValue = entry.shift;
       else if (devt.key.keysym.mod & XBMCKMOD_ALT) keyMapValue = entry.alt;
       else if (devt.key.keysym.mod & XBMCKMOD_META) keyMapValue = entry.altShift;
@@ -558,7 +548,6 @@ bool CLinuxInputDevice::KeyEvent(const struct input_event& levt, XBMC_Event& dev
         }
       }
     }
-#endif /*defined(TARGET_DVBBOX)*/
   }
 
   return true;
@@ -727,12 +716,6 @@ XBMC_Event CLinuxInputDevice::ReadEvent()
       break;
     }
 
-#ifdef TARGET_DVBBOX // oskwon
-    if (access("/tmp/playing.lock", F_OK) == 0) {
-    	break;
-    }
-#endif /*TARGET_DVBBOX*/
-
     //printf("read event readlen = %d device name %s m_fileName %s\n", readlen, m_deviceName, m_fileName.c_str());
 
     // sanity check if we realy read the event
@@ -770,7 +753,7 @@ void CLinuxInputDevice::SetupKeyboardAutoRepeat(int fd)
   bool enable = true;
 
 #if defined(HAS_LIBAMCODEC)
-  if (aml_present())
+  if (aml_get_device_type() == AML_DEVICE_TYPE_M1 || aml_get_device_type() == AML_DEVICE_TYPE_M3)
   {
     // ignore the native aml driver named 'key_input',
     //  it is the dedicated power key handler (am_key_input)
@@ -977,7 +960,6 @@ bool CLinuxInputDevices::CheckDevice(const char *device)
   if (fd < 0)
     return false;
 
-#if !defined(TARGET_DVBBOX) && !VKEY_ENABLE // oskwon
   if (ioctl(fd, EVIOCGRAB, 1) && errno != EINVAL)
   {
     close(fd);
@@ -985,7 +967,6 @@ bool CLinuxInputDevices::CheckDevice(const char *device)
   }
 
   ioctl(fd, EVIOCGRAB, 0);
-#endif /*TARGET_DVBBOX*/
 
   close(fd);
 
@@ -1078,7 +1059,6 @@ bool CLinuxInputDevice::Open()
     return false;
   }
 
-#if !defined(TARGET_DVBBOX) && !VKEY_ENABLE // oskwon
   /* grab device */
   ret = ioctl(fd, EVIOCGRAB, 1);
   if (ret && errno != EINVAL)
@@ -1087,7 +1067,6 @@ bool CLinuxInputDevice::Open()
     close(fd);
     return false;
   }
-#endif /*TARGET_DVBBOX*/
 
   // Set the socket to non-blocking
   int opts = 0;
@@ -1154,9 +1133,8 @@ bool CLinuxInputDevice::Open()
   return true;
 
 driver_open_device_error:
-#if !defined(TARGET_DVBBOX) && !VKEY_ENABLE // oskwon
+
   ioctl(fd, EVIOCGRAB, 0);
-#endif /*TARGET_DVBBOX*/
   if (m_vt_fd >= 0)
   {
     close(m_vt_fd);
@@ -1230,10 +1208,9 @@ bool CLinuxInputDevice::GetKeymapEntry(KeymapEntry& entry)
  */
 void CLinuxInputDevice::Close()
 {
-#if !defined(TARGET_DVBBOX) && !VKEY_ENABLE // oskwon
   /* release device */
   ioctl(m_fd, EVIOCGRAB, 0);
-#endif /*TARGET_DVBBOX*/
+
   if (m_vt_fd >= 0)
     close(m_vt_fd);
 

@@ -19,7 +19,6 @@
  */
 
 #include "system.h"
-#include "utils/StdString.h"
 #include "utils/StringUtils.h"
 #include "input/XBMC_keysym.h"
 #include "input/XBMC_vkeys.h"
@@ -182,6 +181,12 @@ static const XBMCKEYTABLE XBMCKeyTable[] =
 , { XBMCK_LAUNCH_APP2,            0,    0, XBMCVK_LAUNCH_APP2,         "launch_app2_pc_icon" }
 , { XBMCK_LAUNCH_FILE_BROWSER,    0,    0, XBMCVK_LAUNCH_FILE_BROWSER, "launch_file_browser" }
 , { XBMCK_LAUNCH_MEDIA_CENTER,    0,    0, XBMCVK_LAUNCH_MEDIA_CENTER, "launch_media_center" }
+, { XBMCK_PLAY,                   0,    0, XBMCVK_MEDIA_PLAY_PAUSE,    "play_pause" }
+, { XBMCK_STOP,                   0,    0, XBMCVK_MEDIA_STOP,          "stop" }
+, { XBMCK_REWIND,                 0,    0, XBMCVK_MEDIA_REWIND,        "rewind" }
+, { XBMCK_FASTFORWARD,            0,    0, XBMCVK_MEDIA_FASTFORWARD,   "fastforward" }
+, { XBMCK_RECORD,                 0,    0, XBMCVK_MEDIA_RECORD,        "record" }
+
 
 // Function keys
 , { XBMCK_F1,                     0,    0, XBMCVK_F1,            "f1"}
@@ -226,6 +231,13 @@ static const XBMCKEYTABLE XBMCKeyTable[] =
 , { XBMCK_PRINT,                  0,    0, XBMCVK_PRINTSCREEN,   "printscreen" }
 , { XBMCK_POWER,                  0,    0, XBMCVK_POWER,         "power" }
 , { XBMCK_SLEEP,                  0,    0, XBMCVK_SLEEP,         "sleep" }
+, { XBMCK_GUIDE,                  0,    0, XBMCVK_GUIDE,         "guide" }
+, { XBMCK_SETTINGS,               0,    0, XBMCVK_SETTINGS,      "settings" }
+, { XBMCK_INFO,                   0,    0, XBMCVK_INFO,          "info" }
+, { XBMCK_RED,                    0,    0, XBMCVK_RED,           "red" }
+, { XBMCK_GREEN,                  0,    0, XBMCVK_GREEN,         "green" }
+, { XBMCK_YELLOW,                 0,    0, XBMCVK_YELLOW,        "yellow" }
+, { XBMCK_BLUE,                   0,    0, XBMCVK_BLUE,          "blue" }
 };
 
 static int XBMCKeyTableSize = sizeof(XBMCKeyTable)/sizeof(XBMCKEYTABLE);
@@ -239,7 +251,7 @@ bool KeyTableLookupName(const char* keyname, XBMCKEYTABLE* keytable)
     return false;
 
   // We need the button name to be in lowercase
-  CStdString lkeyname = keyname;
+  std::string lkeyname = keyname;
   StringUtils::ToLower(lkeyname);
 
   // Look up the key name in XBMCKeyTable

@@ -30,6 +30,7 @@
 #include "utils/log.h"
 #include "utils/StringUtils.h"
 #include "URL.h"
+#include "CompileInfo.h"
 
 using namespace XFILE;
 using namespace std;
@@ -42,12 +43,15 @@ CAndroidAppDirectory::~CAndroidAppDirectory(void)
 {
 }
 
-bool CAndroidAppDirectory::GetDirectory(const CStdString& strPath, CFileItemList &items)
+bool CAndroidAppDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 {
-  CURL url(strPath);
-  CStdString dirname = url.GetFileName();
+  std::string dirname = url.GetFileName();
   URIUtils::RemoveSlashAtEnd(dirname);
   CLog::Log(LOGDEBUG, "CAndroidAppDirectory::GetDirectory: %s",dirname.c_str()); 
+  std::string appName = CCompileInfo::GetAppName();
+  StringUtils::ToLower(appName);
+  std::string className = "org.xbmc." + appName;
+
   if (dirname == "apps")
   {
     vector<androidPackage> applications = CXBMCApp::GetApplications();
@@ -58,7 +62,7 @@ bool CAndroidAppDirectory::GetDirectory(const CStdString& strPath, CFileItemList
     }
     for(std::vector<androidPackage>::iterator i = applications.begin(); i != applications.end(); ++i)
     {
-      if ((*i).packageName == "org.xbmc.xbmc")
+      if ((*i).packageName == className.c_str())
         continue;
       CFileItemPtr pItem(new CFileItem((*i).packageName));
       pItem->m_bIsFolder = false;
@@ -71,14 +75,8 @@ bool CAndroidAppDirectory::GetDirectory(const CStdString& strPath, CFileItemList
     return true;
   }
 
-  CLog::Log(LOGERROR, "CAndroidAppDirectory::GetDirectory Failed to open %s",strPath.c_str());
+  CLog::Log(LOGERROR, "CAndroidAppDirectory::GetDirectory Failed to open %s", url.Get().c_str());
   return false;
-}
-
-bool CAndroidAppDirectory::IsAllowed(const CStdString& strFile) const
-{
-  // Entries are virtual, so we want them all.
-  return true;
 }
 
 #endif

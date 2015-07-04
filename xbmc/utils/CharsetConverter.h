@@ -22,7 +22,6 @@
  */
 
 #include "settings/lib/ISettingCallback.h"
-#include "threads/CriticalSection.h"
 #include "utils/GlobalsHandling.h"
 #include "utils/uXstrings.h"
 
@@ -164,7 +163,7 @@ public:
   static bool toW(const std::string& stringSrc, std::wstring& wStringDst, const std::string& enc);
   static bool fromW(const std::wstring& wStringSrc, std::string& stringDst, const std::string& enc);
 
-  static void SettingOptionsCharsetsFiller(const CSetting* setting, std::vector< std::pair<std::string, std::string> >& list, std::string& current);
+  static void SettingOptionsCharsetsFiller(const CSetting* setting, std::vector< std::pair<std::string, std::string> >& list, std::string& current, void *data);
 private:
   static void resetUserCharset(void);
   static void resetSubtitleCharset(void);
